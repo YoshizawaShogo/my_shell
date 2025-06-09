@@ -1,11 +1,8 @@
 use std::collections::VecDeque;
-use std::io::{Read, Write, stderr, stdin, stdout};
-use std::process::Command;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::io::{Read, Write, stdin, stdout};
 
 use crate::prompt::get_prompt;
-use crate::term_mode;
+use crate::{command, term_mode};
 use crate::term_size::{read_terminal_size};
 
 pub struct MyShell {
@@ -89,8 +86,9 @@ impl MyShell {
                 } // Ctrl + H      (BS: Backspace)
                 // 9   => , // Ctrl + I      (HT: Horizontal Tab)
                 10 => {
-                    println!("\r");
-                    self.run_command(&buffer);
+                    self.display_buffer(&buffer, cursor, read_terminal_size().width.into());
+                    print!("\r\n");
+                    command::run(&buffer);
                     buffer.clear();
                     cursor = 0;
                     println!("\r{}\r", get_prompt(read_terminal_size().width.into()));
@@ -182,23 +180,6 @@ impl MyShell {
         buf += &"\x1b[1C".repeat(cursor);
 
         write!(stdout().lock(), "{}", buf).unwrap();
-    }
-    fn run_command(&mut self, command_str: &str) {
-        let command_vec: Vec<&str> = command_str.split_whitespace().collect();
-        if command_vec.is_empty() {
-            return;
-        }
-
-        let status = Command::new(command_vec[0])
-            .args(&command_vec[1..])
-            .spawn()
-            .and_then(|mut child| child.wait());
-
-        if let Ok(status) = status {
-            self.exit_code = status.code().unwrap_or(1);
-        } else {
-            self.exit_code = 1;
-        }
     }
 }
 

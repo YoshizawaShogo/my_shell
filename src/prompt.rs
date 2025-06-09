@@ -10,7 +10,7 @@ pub(crate) fn get_prompt(width: usize) -> String {
     let cyan = "\x1b[36m";
     let yellow = "\x1b[33m";
     let green = "\x1b[32m";
-    let red = "\x1b[31m";
+    // let red = "\x1b[31m";
     let gray = "\x1b[90m"; // 薄いグレー
     let reset = "\x1b[0m";
 
@@ -22,7 +22,7 @@ pub(crate) fn get_prompt(width: usize) -> String {
     let git_info = match get_git_branch_and_status() {
         Some((branch, dirty)) => {
             if dirty {
-                format!(" on {}{}{} {}x{}", green, branch, reset, red, reset)
+                format!(" on {}{}{} x{}", green, branch, reset, reset)
             } else {
                 format!(" on {}{}{}", green, branch, reset)
             }
