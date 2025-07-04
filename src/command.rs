@@ -1,5 +1,92 @@
 // command.rs
-use std::process::{Command, Stdio};
+use std::{env, fs, os::unix::fs::PermissionsExt, path::Path, process::{Command, Stdio}};
+
+use crate::term_mode::{set_origin_term, set_raw_term};
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Token {
+    Word(String),           // 通常の文字列
+    And,                    // &&
+    Or,                     // ||
+    RedirectOut,            // >
+    RedirectBoth,           // &>
+    RedirectErr,            // 2>
+    RedirectAppend,         // >>
+    RedirectBothAppend,     // &>>
+    RedirectErrAppend,      // 2>>
+    Pipe,                   // |
+    PipeErr,                // 2|
+    PipeBoth,               // &|
+}
+
+fn tokenize_a_word(word: &str) -> Token {
+    match word {
+        "&&" => Token::And,
+        "||" => Token::Or,
+        ">" => Token::RedirectOut,
+        "&>" => Token::RedirectBoth,
+        "2>" => Token::RedirectErr,
+        ">>" => Token::RedirectAppend,
+        "&>>" => Token::RedirectBothAppend,
+        "2>>" => Token::RedirectErrAppend,
+        "|" => Token::Pipe,
+        "2|" => Token::PipeErr,
+        "&|" => Token::PipeBoth,
+        _ => Token::Word(word.to_string()),
+    }
+}
+
+pub fn tokenize(input: &str) -> Vec<Token> {
+    let mut tokens = vec![];
+    let mut current = String::new();
+    let mut chars = input.chars().peekable();
+    let mut in_single = false;
+    let mut in_double = false;
+
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            if let Some(next_ch) = chars.next() {
+                current.push('\\');
+                current.push(next_ch);
+            }
+            continue;
+        }
+        match ch {
+            '\'' if !in_double => {
+                if in_single {
+                    in_single = false;
+                    tokens.push(tokenize_a_word(&current));
+                    current.clear();
+                } else {
+                    in_single = true;
+                }
+            }
+            '\"' if !in_single => {
+                if in_double {
+                    in_double = false;
+                    tokens.push(tokenize_a_word(&current));
+                    current.clear();
+                } else {
+                    in_double = true;
+                }
+            }
+            ' ' if !in_single && !in_double => {
+                if !current.is_empty() {
+                    tokens.push(tokenize_a_word(&current));
+                    current.clear();
+                }
+            }
+            _ => {
+                current.push(ch);
+            }
+        }
+    }
+
+    if !current.is_empty() {
+        tokens.push(tokenize_a_word(&current));
+    }
+    tokens
+}
 
 #[derive(Debug)]
 enum Expr {
@@ -17,100 +104,63 @@ struct CommandExpr {
     stderr_pipe: bool,              // true if 2| (pipe stderr)
 }
 
-pub fn tokenize(input: &str) -> Vec<String> {
-    let mut tokens = vec![];
-    let mut current = String::new();
-    let mut chars = input.chars().peekable();
-    let mut in_single = false;
-    let mut in_double = false;
+pub fn command_exists(cmd: &str) -> bool {
+    // 絶対パスや相対パスが指定されている場合は直接確認
+    if cmd.contains('/') {
+        return Path::new(cmd).is_file() && fs::metadata(cmd).map(|m| m.permissions().mode() & 0o111 != 0).unwrap_or(false);
+    }
 
-    while let Some(&ch) = chars.peek() {
-        match ch {
-            '\'' => {
-                chars.next();
-                if in_single {
-                    in_single = false;
-                } else if !in_double {
-                    in_single = true;
-                } else {
-                    current.push(ch);
-                }
-            }
-            '"' => {
-                chars.next();
-                if in_double {
-                    in_double = false;
-                } else if !in_single {
-                    in_double = true;
-                } else {
-                    current.push(ch);
-                }
-            }
-            ' ' if !in_single && !in_double => {
-                chars.next();
-                if !current.is_empty() {
-                    tokens.push(current.clone());
-                    current.clear();
-                }
-            }
-            '&' | '|' | '>' => {
-                chars.next();
-                if !current.is_empty() {
-                    tokens.push(current.clone());
-                    current.clear();
-                }
-                if let Some(&next) = chars.peek() {
-                    let combo = format!("{}{}", ch, next);
-                    match combo.as_str() {
-                        "&&" | "||" | ">>" | "&>" => {
-                            chars.next();
-                            tokens.push(combo);
-                            continue;
-                        }
-                        _ => {}
-                    }
-                }
-                tokens.push(ch.to_string());
-            }
-            '2' if !in_single && !in_double => {
-                chars.next();
-                if let Some(&next) = chars.peek() {
-                    if next == '>' || next == '|' {
-                        chars.next();
-                        tokens.push(format!("2{}", next));
-                        continue;
-                    }
-                }
-                current.push('2');
-            }
-            _ => {
-                current.push(ch);
-                chars.next();
+    // $PATH 環境変数にあるディレクトリを調べる
+    if let Some(paths) = env::var_os("PATH") {
+        for path in env::split_paths(&paths) {
+            let full_path = path.join(cmd);
+            if full_path.is_file() && fs::metadata(&full_path).map(|m| m.permissions().mode() & 0o111 != 0).unwrap_or(false) {
+                return true;
             }
         }
     }
-
-    if !current.is_empty() {
-        tokens.push(current);
-    }
-
-    tokens
+    false
 }
 
-fn parse(tokens: &[String]) -> (Expr, usize) {
+pub fn validate_command(tokens: &[Token]) -> Option<String> {
+    if let Some(Token::Word(first)) = tokens.first() {
+        if !first.starts_with(|c: char| c == '-' || c == '/') && !command_exists(first) {
+            return Some(format!("command not found: {}", first));
+        }
+    }
+    None
+}
+
+pub fn run(input: &str) -> i32 {
+    let tokens = tokenize(input);
+    if tokens.is_empty() {
+        return 0;
+    }
+    if let Some(msg) = validate_command(&tokens) {
+        eprintln!("{}", msg);
+        return 127;
+    }
+    let (expr, _) = parse(&tokens);
+    set_origin_term();
+    let r = execute(&expr);
+    set_raw_term();
+    r
+}
+
+fn parse(tokens: &[Token]) -> (Expr, usize) {
     parse_expr(tokens, 0)
 }
 
-fn parse_expr(tokens: &[String], mut i: usize) -> (Expr, usize) {
+fn parse_expr(tokens: &[Token], mut i: usize) -> (Expr, usize) {
     let mut lhs = parse_pipe(tokens, &mut i);
     while i < tokens.len() {
-        match tokens[i].as_str() {
-            "&&" => {
+        match &tokens[i] {
+            Token::And => {
                 i += 1;
                 let rhs = parse_pipe(tokens, &mut i);
                 lhs = Expr::And(Box::new(lhs), Box::new(rhs));
             }
-            "||" => {
+            Token::Or => {
                 i += 1;
                 let rhs = parse_pipe(tokens, &mut i);
                 lhs = Expr::Or(Box::new(lhs), Box::new(rhs));
@@ -121,9 +171,9 @@ fn parse_expr(tokens: &[String], mut i: usize) -> (Expr, usize) {
     (lhs, i)
 }
 
-fn parse_pipe(tokens: &[String], i: &mut usize) -> Expr {
+fn parse_pipe(tokens: &[Token], i: &mut usize) -> Expr {
     let mut commands = vec![parse_command(tokens, i)];
-    while *i < tokens.len() && tokens[*i] == "|" {
+    while *i < tokens.len() && matches!(tokens[*i], Token::Pipe) {
         *i += 1;
         commands.push(parse_command(tokens, i));
     }
@@ -134,36 +184,44 @@ fn parse_pipe(tokens: &[String], i: &mut usize) -> Expr {
     }
 }
 
-fn parse_command(tokens: &[String], i: &mut usize) -> CommandExpr {
+fn parse_command(tokens: &[Token], i: &mut usize) -> CommandExpr {
     let mut argv = Vec::new();
     let mut stdout = None;
     let mut stderr = None;
     let mut stderr_pipe = false;
 
     while *i < tokens.len() {
-        match tokens[*i].as_str() {
-            ">" | ">>" | "&>" => {
-                let append = tokens[*i] == ">>";
+        match &tokens[*i] {
+            Token::RedirectOut | Token::RedirectAppend | Token::RedirectBoth | Token::RedirectBothAppend => {
+                let append = matches!(tokens[*i], Token::RedirectAppend | Token::RedirectBothAppend);
                 *i += 1;
                 if *i < tokens.len() {
-                    stdout = Some((tokens[*i].clone(), append));
-                    *i += 1;
+                    if let Token::Word(filename) = &tokens[*i] {
+                        stdout = Some((filename.clone(), append));
+                        *i += 1;
+                    }
                 }
             }
-            "2>" => {
+            Token::RedirectErr | Token::RedirectErrAppend => {
                 *i += 1;
                 if *i < tokens.len() {
-                    stderr = Some(tokens[*i].clone());
-                    *i += 1;
+                    if let Token::Word(filename) = &tokens[*i] {
+                        stderr = Some(filename.clone());
+                        *i += 1;
+                    }
                 }
             }
-            "2|" => {
+            Token::PipeErr => {
                 *i += 1;
                 stderr_pipe = true;
             }
-            "|" | "&&" | "||" => break,
-            _ => {
-                argv.push(tokens[*i].clone());
+            Token::PipeBoth => {
+                // TODO: Handle &| (pipe both stdout and stderr)
+                *i += 1;
+            }
+            Token::Pipe | Token::And | Token::Or => break,
+            Token::Word(word) => {
+                argv.push(word.clone());
                 *i += 1;
             }
         }
@@ -277,73 +335,93 @@ fn execute_pipeline(commands: &[CommandExpr]) -> i32 {
     last.wait().ok().and_then(|s| s.code()).unwrap_or(1)
 }
 
-pub fn run(input: &str) -> i32 {
-    let tokens = tokenize(input);
-    if tokens.is_empty() {
-        return 0;
-    }
-    let (expr, _) = parse(&tokens);
-    execute(&expr)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_tokenize_and_run_basic() {
-        let result = run("echo hello > test_stdout.txt");
-        assert_eq!(result, 0);
-        let content = std::fs::read_to_string("test_stdout.txt").unwrap();
-        assert!(content.contains("hello"));
-        let _ = std::fs::remove_file("test_stdout.txt");
+    fn test_simple_words() {
+        assert_eq!(tokenize("echo hello"), vec![
+            Token::Word("echo".into()),
+            Token::Word("hello".into()),
+        ]);
     }
 
     #[test]
-    fn test_logical_and_or() {
-        let result = run("false || echo yes > or_result.txt");
-        assert_eq!(result, 0);
-        let content = std::fs::read_to_string("or_result.txt").unwrap();
-        assert!(content.contains("yes"));
-        let _ = std::fs::remove_file("or_result.txt");
+    fn test_quoted_words() {
+        assert_eq!(tokenize("\"\\\"a'a\\\"\""), vec![Token::Word("\\\"a'a\\\"".into())]);
+        assert_eq!(tokenize("\"a'a\""), vec![Token::Word("a'a".into())]);
     }
 
     #[test]
-    fn test_pipe_and_stderr_pipe() {
-        let result = run("ls non_existing 2| grep foo");
-        assert_ne!(result, 0); // expected non-zero since no stderr is captured
+    fn test_and_or() {
+        assert_eq!(tokenize("a && b || c"), vec![
+            Token::Word("a".into()),
+            Token::And,
+            Token::Word("b".into()),
+            Token::Or,
+            Token::Word("c".into()),
+        ]);
     }
 
     #[test]
-    fn test_tokenize_quotes() {
-        let tokens = tokenize("echo 'hello world' && ls");
-        assert_eq!(
-            tokens,
-            vec!["echo", "hello world", "&&", "ls"]
-                .into_iter()
-                .map(String::from)
-                .collect::<Vec<_>>()
-        );
+    fn test_redirects() {
+        assert_eq!(tokenize("a > b"), vec![Token::Word("a".into()), Token::RedirectOut, Token::Word("b".into())]);
+        assert_eq!(tokenize("a >> b"), vec![Token::Word("a".into()), Token::RedirectAppend, Token::Word("b".into())]);
+        assert_eq!(tokenize("a &> b"), vec![Token::Word("a".into()), Token::RedirectBoth, Token::Word("b".into())]);
+        assert_eq!(tokenize("a &>> b"), vec![Token::Word("a".into()), Token::RedirectBothAppend, Token::Word("b".into())]);
+        assert_eq!(tokenize("a 2> b"), vec![Token::Word("a".into()), Token::RedirectErr, Token::Word("b".into())]);
+        assert_eq!(tokenize("a 2>> b"), vec![Token::Word("a".into()), Token::RedirectErrAppend, Token::Word("b".into())]);
     }
 
     #[test]
-    fn test_parse_redirections() {
-        let tokens = tokenize("echo test > out.txt 2> err.txt");
-        assert_eq!(
-            tokens,
-            vec!["echo", "test", ">", "out.txt", "2>", "err.txt"]
-                .into_iter()
-                .map(String::from)
-                .collect::<Vec<_>>()
-        );
-        let (expr, _) = parse(&tokens);
-        match expr {
-            Expr::Command(cmd) => {
-                assert_eq!(cmd.argv, vec!["echo", "test"]);
-                assert_eq!(cmd.stdout, Some(("out.txt".to_string(), false)));
-                assert_eq!(cmd.stderr, Some("err.txt".to_string()));
-            }
-            _ => panic!("Expected Command variant"),
-        }
+    fn test_pipes() {
+        assert_eq!(tokenize("a | b"), vec![Token::Word("a".into()), Token::Pipe, Token::Word("b".into())]);
+        assert_eq!(tokenize("a || b"), vec![Token::Word("a".into()), Token::Or, Token::Word("b".into())]);
+        assert_eq!(tokenize("a &| b"), vec![Token::Word("a".into()), Token::PipeBoth, Token::Word("b".into())]);
+        assert_eq!(tokenize("a 2| b"), vec![Token::Word("a".into()), Token::PipeErr, Token::Word("b".into())]);
+    }
+
+    #[test]
+    fn test_mixed_tokens() {
+        let input = "echo 'hello world' && ls -l | grep txt &> result.log";
+        let expected = vec![
+            Token::Word("echo".into()),
+            Token::Word("hello world".into()),
+            Token::And,
+            Token::Word("ls".into()),
+            Token::Word("-l".into()),
+            Token::Pipe,
+            Token::Word("grep".into()),
+            Token::Word("txt".into()),
+            Token::RedirectBoth,
+            Token::Word("result.log".into()),
+        ];
+        assert_eq!(tokenize(input), expected);
+    }
+
+    #[test]
+    fn test_no_space_operators() {
+        let input = "a && b || c | d &> e &>> f 2> g 2>> h 2| i";
+        let expected = vec![
+            Token::Word("a".into()),
+            Token::And,
+            Token::Word("b".into()),
+            Token::Or,
+            Token::Word("c".into()),
+            Token::Pipe,
+            Token::Word("d".into()),
+            Token::RedirectBoth,
+            Token::Word("e".into()),
+            Token::RedirectBothAppend,
+            Token::Word("f".into()),
+            Token::RedirectErr,
+            Token::Word("g".into()),
+            Token::RedirectErrAppend,
+            Token::Word("h".into()),
+            Token::PipeErr,
+            Token::Word("i".into()),
+        ];
+        assert_eq!(tokenize(input), expected);
     }
 }

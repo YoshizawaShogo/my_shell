@@ -4,9 +4,11 @@ use libc::{
 use std::sync::OnceLock;
 
 static ORIGIN_TERM: OnceLock<termios> = OnceLock::new();
+static RAW_TERM: OnceLock<termios> = OnceLock::new();
 
 pub fn init() {
     init_origin_term();
+    init_raw_term();
 }
 
 fn get_term_mode() -> termios {
@@ -27,8 +29,27 @@ fn set_term_mode(term: &termios) {
     }
 }
 
+pub fn set_origin_term() {
+    let term = ORIGIN_TERM
+        .get()
+        .expect("ORIGIN_TERM not initialized");
+    set_term_mode(&term);
+}
+
 pub fn set_raw_term() {
     // rawモードに切り替え
+    let term = RAW_TERM
+        .get()
+        .expect("ORIGIN_TERM not initialized");
+    set_term_mode(&term);
+}
+
+fn init_origin_term() {
+    let term = get_term_mode();
+    ORIGIN_TERM.get_or_init(|| term);
+}
+
+fn init_raw_term() {
     // man cfmakeraw に色々書いてある
     let mut base_term = ORIGIN_TERM
         .get()
@@ -39,18 +60,5 @@ pub fn set_raw_term() {
     base_term.c_lflag &= !(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
     base_term.c_cflag &= !(CSIZE | PARENB);
     base_term.c_cflag |= CS8;
-
-    set_term_mode(&base_term);
-}
-
-pub fn set_origin_term() {
-    let term = ORIGIN_TERM
-        .get()
-        .expect("ORIGIN_TERM not initialized");
-    set_term_mode(&term);
-}
-
-fn init_origin_term() {
-    let term = get_term_mode();
-    ORIGIN_TERM.get_or_init(|| term);
+    RAW_TERM.get_or_init(|| base_term);
 }
