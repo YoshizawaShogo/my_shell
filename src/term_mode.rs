@@ -40,7 +40,7 @@ pub fn set_raw_term() {
     // rawモードに切り替え
     let term = RAW_TERM
         .get()
-        .expect("ORIGIN_TERM not initialized");
+        .expect("RAW_TERM not initialized");
     set_term_mode(&term);
 }
 

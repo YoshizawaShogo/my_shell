@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::io::{Read, Write, stdin, stdout};
 
 use crate::prompt::get_prompt;
@@ -6,40 +5,11 @@ use crate::{command, term_mode};
 use crate::term_size::{read_terminal_size};
 
 pub struct MyShell {
-    log: Log,
-    exit_code: i32,
-}
-
-struct Log {
-    logs: VecDeque<String>,
-    capacity: usize,
-}
-
-impl Log {
-    fn new(capacity: usize) -> Self {
-        Self {
-            logs: VecDeque::new(),
-            capacity,
-        }
-    }
-    fn push(&mut self, value: String) {
-        for line in value.split("\n") {
-            self.logs.push_back(line.to_string());
-        }
-        while self.logs.len() > self.capacity {
-            self.logs.pop_front();
-        }
-    }
-    fn ref_logs(&self) -> &VecDeque<String> {
-        &self.logs
-    }
 }
 
 impl MyShell {
     pub fn new() -> Self {
         Self {
-            log: Log::new(10),
-            exit_code: 0,
         }
     }
 
@@ -50,7 +20,6 @@ impl MyShell {
         let mut cursor = 0; // bufferのindex (0..=len)
         while let Some(b) = stdin().lock().by_ref().bytes().next() {
             let b = b.unwrap();
-
             self.clear_lines(&buffer, cursor, read_terminal_size().width.into());
             match b {
                 // 0   => , // Ctrl + @      (NUL: Null)
@@ -88,7 +57,7 @@ impl MyShell {
                 10 => {
                     self.display_buffer(&buffer, cursor, read_terminal_size().width.into());
                     print!("\r\n");
-                    command::run(&buffer);
+                    command::execute::run(&buffer);
                     buffer.clear();
                     cursor = 0;
                     println!("\r{}\r", get_prompt(read_terminal_size().width.into()));
