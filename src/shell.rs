@@ -1,19 +1,92 @@
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::env;
+use std::fs::{self, File};
 use std::io::{Read, Write, stdin, stdout};
+use std::path::Path;
 
 use crate::prompt::get_prompt;
 use crate::{command, term_mode};
 use crate::term_size::{read_terminal_size};
 
+const RC_FILE: &str = ".my_shell_rc";
+const LOG_FILE: &str = ".my_shell_log";
+
 pub struct MyShell {
+    log: Log,
+    abbr: HashMap<String, String>,
+}
+struct Log {
+    log_path: String,
+    capacity: usize,
+    log: VecDeque<String>,
+    hash: HashSet<String>,
+}
+
+impl Log {
+    fn new(capacity: usize) -> Self {
+        let log_path = env::var("HOME").unwrap() + "/" + LOG_FILE;
+        if !Path::new(&log_path).is_file() {
+            File::create(&log_path).unwrap();
+        }
+        let mut log = VecDeque::new();
+        let mut hash = HashSet::new();
+        for line in fs::read_to_string(&log_path).unwrap().split("\n") {
+            hash.insert(line.to_string());
+            log.push_back(line.to_string());
+        }
+        Self {
+            log_path: log_path,
+            capacity,
+            log,
+            hash,
+        }
+    }
+    fn push(&mut self, value: String) {
+        for line in value.split("\n") {
+            if self.hash.contains(line) {
+                let i = self.log.iter().position(|x| x == &line).unwrap();
+                self.log.remove(i);
+            } else {
+                self.hash.insert(line.to_string());
+            }
+            self.log.push_back(line.to_string());
+        }
+        while self.log.len() > self.capacity {
+            let poped = self.log.pop_front().unwrap();
+            self.hash.remove(&poped);
+        }
+    }
+    fn store(&self) {
+        let log_str = self.log.iter().cloned().collect::<Vec<_>>().join("\n");
+        fs::write(&self.log_path, log_str).unwrap();
+    }
+    // fn ref_logs(&self) -> &VecDeque<String> {
+    //     &self.log
+    // }
 }
 
 impl MyShell {
     pub fn new() -> Self {
         Self {
+            log: Log::new( 1000),
+            abbr: HashMap::new()
+        }
+
+    }
+    fn expand_abbr(&self, buffer: &mut String) {
+        if let Some(expanded) = self.abbr.get(buffer) {
+            *buffer = expanded.clone()
         }
     }
 
     pub fn command_mode(&mut self) {
+        let rc_path = env::var("HOME").unwrap() + "/" + RC_FILE;
+        if !Path::new(&rc_path).is_file() {
+            File::create(&rc_path).unwrap();
+        }
+        for line in fs::read_to_string(&rc_path).unwrap().split("\n") {
+            command::execute::run(line);
+        }
         term_mode::set_raw_term();
         println!("{}\r", get_prompt(read_terminal_size().width.into()));
         let mut buffer = String::new();
@@ -35,6 +108,7 @@ impl MyShell {
                 } // Ctrl + C      (ETX: End of Text / Interrupt)
                 4 => {
                     if buffer.is_empty() {
+                        self.log.store();
                         return;
                     } else if cursor != buffer.len() {
                         buffer.remove(cursor);
@@ -58,6 +132,7 @@ impl MyShell {
                     self.display_buffer(&buffer, cursor, read_terminal_size().width.into());
                     print!("\r\n");
                     command::execute::run(&buffer);
+                    self.log.push(buffer.clone());
                     buffer.clear();
                     cursor = 0;
                     println!("\r{}\r", get_prompt(read_terminal_size().width.into()));
@@ -83,11 +158,16 @@ impl MyShell {
                 // 29   => , // Ctrl + ]      (GS: Group Separator)
                 // 30   => , // Ctrl + ^      (RS: Record Separator)
                 // 31   => , // Ctrl + _      (US: Unit Separator)
-                // 127   => , // Ctrl + ?      (DEL: Delete)
                 32..=126 => {
+                    if b == 32 {
+                        if !buffer.contains(" ") {
+                            self.expand_abbr(&mut buffer);
+                        }
+                    }
                     buffer.insert(cursor, b as char);
                     cursor += 1;
                 }
+                // 127   => , // Ctrl + ?      (DEL: Delete)
                 _ => {}
             }
             self.display_buffer(&buffer, cursor, read_terminal_size().width.into());
