@@ -1,8 +1,8 @@
+pub mod command;
 pub mod prompt;
 pub mod shell;
 pub mod term_mode;
 pub mod term_size;
-pub mod command;
 
 pub fn init() {
     term_mode::init();

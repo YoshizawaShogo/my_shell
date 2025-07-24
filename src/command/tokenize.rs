@@ -1,17 +1,18 @@
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
-    Word(String),           // 通常の文字列
-    And,                    // &&
-    Or,                     // ||
-    RedirectOut,            // >
-    RedirectBoth,           // &>
-    RedirectErr,            // 2>
-    RedirectAppend,         // >>
-    RedirectBothAppend,     // &>>
-    RedirectErrAppend,      // 2>>
-    Pipe,                   // |
-    PipeErr,                // 2|
-    PipeBoth,               // &|
+    Word(String),        // 通常の文字列
+    LiteralWord(String), // 通常の文字列
+    And,                 // &&
+    Or,                  // ||
+    RedirectOut,         // >
+    RedirectBoth,        // &>
+    RedirectErr,         // 2>
+    RedirectAppend,      // >>
+    RedirectBothAppend,  // &>>
+    RedirectErrAppend,   // 2>>
+    Pipe,                // |
+    PipeErr,             // 2|
+    PipeBoth,            // &|
 }
 
 fn tokenize_a_word(word: &str) -> Token {
@@ -39,18 +40,17 @@ pub fn tokenize(input: &str) -> Vec<Token> {
     let mut in_double = false;
 
     while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            if let Some(next_ch) = chars.next() {
-                current.push('\\');
-                current.push(next_ch);
-            }
-            continue;
-        }
         match ch {
+            '\\' => {
+                if let Some(next_ch) = chars.next() {
+                    current.push('\\');
+                    current.push(next_ch);
+                }
+            }
             '\'' if !in_double => {
                 if in_single {
                     in_single = false;
-                    tokens.push(tokenize_a_word(&current));
+                    tokens.push(Token::LiteralWord(current.to_string()));
                     current.clear();
                 } else {
                     in_single = true;

@@ -1,8 +1,8 @@
-use std::fs;
+use regex::Regex;
 use std::env;
+use std::fs;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
-use regex::Regex;
 
 pub(crate) fn get_prompt(width: usize) -> String {
     // ANSI Colors
@@ -32,15 +32,7 @@ pub(crate) fn get_prompt(width: usize) -> String {
 
     let left = format!(
         "# {}{}@{}{}: {}{}{}{}{}",
-        cyan,
-        user,
-        host,
-        reset,
-        yellow,
-        cwd,
-        reset,
-        git_info,
-        reset,
+        cyan, user, host, reset, yellow, cwd, reset, git_info, reset,
     );
 
     let space_count = width.saturating_sub(strip_ansi(&left).len() + 8); // clock は8文字 "hh:mm:ss"

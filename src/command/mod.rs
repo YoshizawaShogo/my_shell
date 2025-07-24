@@ -1,8 +1,9 @@
-pub mod tokenize;
-pub mod parse;
-pub mod execute;
 pub mod abbr;
 pub mod alias;
+pub mod builtin;
+pub mod execute;
+pub mod parse;
+pub mod tokenize;
 pub mod util;
 
 #[cfg(test)]
@@ -12,45 +13,117 @@ mod tests {
 
     #[test]
     fn test_simple_words() {
-        assert_eq!(tokenize("echo hello"), vec![
-            Token::Word("echo".into()),
-            Token::Word("hello".into()),
-        ]);
+        assert_eq!(
+            tokenize("echo hello"),
+            vec![Token::Word("echo".into()), Token::Word("hello".into()),]
+        );
     }
 
     #[test]
     fn test_quoted_words() {
-        assert_eq!(tokenize("\"\\\"a'a\\\"\""), vec![Token::Word("\\\"a'a\\\"".into())]);
+        assert_eq!(
+            tokenize("\"\\\"a'a\\\"\""),
+            vec![Token::Word("\\\"a'a\\\"".into())]
+        );
         assert_eq!(tokenize("\"a'a\""), vec![Token::Word("a'a".into())]);
     }
 
     #[test]
     fn test_and_or() {
-        assert_eq!(tokenize("a && b || c"), vec![
-            Token::Word("a".into()),
-            Token::And,
-            Token::Word("b".into()),
-            Token::Or,
-            Token::Word("c".into()),
-        ]);
+        assert_eq!(
+            tokenize("a && b || c"),
+            vec![
+                Token::Word("a".into()),
+                Token::And,
+                Token::Word("b".into()),
+                Token::Or,
+                Token::Word("c".into()),
+            ]
+        );
     }
 
     #[test]
     fn test_redirects() {
-        assert_eq!(tokenize("a > b"), vec![Token::Word("a".into()), Token::RedirectOut, Token::Word("b".into())]);
-        assert_eq!(tokenize("a >> b"), vec![Token::Word("a".into()), Token::RedirectAppend, Token::Word("b".into())]);
-        assert_eq!(tokenize("a &> b"), vec![Token::Word("a".into()), Token::RedirectBoth, Token::Word("b".into())]);
-        assert_eq!(tokenize("a &>> b"), vec![Token::Word("a".into()), Token::RedirectBothAppend, Token::Word("b".into())]);
-        assert_eq!(tokenize("a 2> b"), vec![Token::Word("a".into()), Token::RedirectErr, Token::Word("b".into())]);
-        assert_eq!(tokenize("a 2>> b"), vec![Token::Word("a".into()), Token::RedirectErrAppend, Token::Word("b".into())]);
+        assert_eq!(
+            tokenize("a > b"),
+            vec![
+                Token::Word("a".into()),
+                Token::RedirectOut,
+                Token::Word("b".into())
+            ]
+        );
+        assert_eq!(
+            tokenize("a >> b"),
+            vec![
+                Token::Word("a".into()),
+                Token::RedirectAppend,
+                Token::Word("b".into())
+            ]
+        );
+        assert_eq!(
+            tokenize("a &> b"),
+            vec![
+                Token::Word("a".into()),
+                Token::RedirectBoth,
+                Token::Word("b".into())
+            ]
+        );
+        assert_eq!(
+            tokenize("a &>> b"),
+            vec![
+                Token::Word("a".into()),
+                Token::RedirectBothAppend,
+                Token::Word("b".into())
+            ]
+        );
+        assert_eq!(
+            tokenize("a 2> b"),
+            vec![
+                Token::Word("a".into()),
+                Token::RedirectErr,
+                Token::Word("b".into())
+            ]
+        );
+        assert_eq!(
+            tokenize("a 2>> b"),
+            vec![
+                Token::Word("a".into()),
+                Token::RedirectErrAppend,
+                Token::Word("b".into())
+            ]
+        );
     }
 
     #[test]
     fn test_pipes() {
-        assert_eq!(tokenize("a | b"), vec![Token::Word("a".into()), Token::Pipe, Token::Word("b".into())]);
-        assert_eq!(tokenize("a || b"), vec![Token::Word("a".into()), Token::Or, Token::Word("b".into())]);
-        assert_eq!(tokenize("a &| b"), vec![Token::Word("a".into()), Token::PipeBoth, Token::Word("b".into())]);
-        assert_eq!(tokenize("a 2| b"), vec![Token::Word("a".into()), Token::PipeErr, Token::Word("b".into())]);
+        assert_eq!(
+            tokenize("a | b"),
+            vec![
+                Token::Word("a".into()),
+                Token::Pipe,
+                Token::Word("b".into())
+            ]
+        );
+        assert_eq!(
+            tokenize("a || b"),
+            vec![Token::Word("a".into()), Token::Or, Token::Word("b".into())]
+        );
+        assert_eq!(
+            tokenize("a &| b"),
+            vec![
+                Token::Word("a".into()),
+                Token::PipeBoth,
+                Token::Word("b".into())
+            ]
+        );
+        assert_eq!(
+            tokenize("a 2| b"),
+            vec![
+                Token::Word("a".into()),
+                Token::PipeErr,
+                Token::Word("b".into())
+            ]
+        );
     }
 
     #[test]

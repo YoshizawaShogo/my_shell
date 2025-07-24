@@ -1,5 +1,6 @@
 use libc::{
-    tcgetattr, tcsetattr, termios, BRKINT, CS8, CSIZE, ECHO, ECHONL, ICANON, ICRNL, IEXTEN, IGNBRK, IGNCR, INLCR, ISIG, ISTRIP, IXON, OPOST, PARENB, PARMRK, STDIN_FILENO, TCSAFLUSH
+    BRKINT, CS8, CSIZE, ECHO, ECHONL, ICANON, ICRNL, IEXTEN, IGNBRK, IGNCR, INLCR, ISIG, ISTRIP,
+    IXON, OPOST, PARENB, PARMRK, STDIN_FILENO, TCSAFLUSH, tcgetattr, tcsetattr, termios,
 };
 use std::sync::OnceLock;
 
@@ -30,17 +31,13 @@ fn set_term_mode(term: &termios) {
 }
 
 pub fn set_origin_term() {
-    let term = ORIGIN_TERM
-        .get()
-        .expect("ORIGIN_TERM not initialized");
+    let term = ORIGIN_TERM.get().expect("ORIGIN_TERM not initialized");
     set_term_mode(&term);
 }
 
 pub fn set_raw_term() {
     // rawモードに切り替え
-    let term = RAW_TERM
-        .get()
-        .expect("RAW_TERM not initialized");
+    let term = RAW_TERM.get().expect("RAW_TERM not initialized");
     set_term_mode(&term);
 }
 

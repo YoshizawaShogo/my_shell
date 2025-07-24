@@ -1,6 +1,4 @@
-use libc::{
-    signal, SIGWINCH, TIOCGWINSZ
-};
+use libc::{SIGWINCH, TIOCGWINSZ, signal};
 use std::fs::File;
 use std::mem;
 use std::os::unix::io::AsRawFd;

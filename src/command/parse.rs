@@ -2,7 +2,6 @@ use crate::command::tokenize::Token;
 
 #[derive(Debug)]
 pub enum Expr {
-    Command(CommandExpr),
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),
     Pipe(Vec<CommandExpr>),
@@ -11,9 +10,8 @@ pub enum Expr {
 #[derive(Debug)]
 pub struct CommandExpr {
     pub(crate) argv: Vec<String>,
-    pub(crate) stdout: Option<(String, bool)>,  // (filename, append?)
-    pub(crate) stderr: Option<String>,         // 2> or 2| target
-    pub(crate) stderr_pipe: bool,              // true if 2| (pipe stderr)
+    pub(crate) stdout: Option<(String, bool)>, // (filename, append?), Pipe if None
+    pub(crate) stderr: Option<(String, bool)>, // (filename, append?), Pipe if None
 }
 
 pub fn parse(tokens: &[Token]) -> (Expr, usize) {
@@ -47,7 +45,7 @@ fn parse_pipe(tokens: &[Token], i: &mut usize) -> Expr {
         commands.push(parse_command(tokens, i));
     }
     if commands.len() == 1 {
-        Expr::Command(commands.remove(0))
+        Expr::Pipe(commands)
     } else {
         Expr::Pipe(commands)
     }
@@ -57,12 +55,11 @@ fn parse_command(tokens: &[Token], i: &mut usize) -> CommandExpr {
     let mut argv = Vec::new();
     let mut stdout = None;
     let mut stderr = None;
-    let mut stderr_pipe = false;
 
     while *i < tokens.len() {
         match &tokens[*i] {
-            Token::RedirectOut | Token::RedirectAppend | Token::RedirectBoth | Token::RedirectBothAppend => {
-                let append = matches!(tokens[*i], Token::RedirectAppend | Token::RedirectBothAppend);
+            Token::RedirectOut | Token::RedirectAppend => {
+                let append = tokens[*i] == Token::RedirectAppend;
                 *i += 1;
                 if *i < tokens.len() {
                     if let Token::Word(filename) = &tokens[*i] {
@@ -71,30 +68,54 @@ fn parse_command(tokens: &[Token], i: &mut usize) -> CommandExpr {
                     }
                 }
             }
-            Token::RedirectErr | Token::RedirectErrAppend => {
+            Token::RedirectBoth | Token::RedirectBothAppend => {
+                let append = tokens[*i] == Token::RedirectBothAppend;
                 *i += 1;
                 if *i < tokens.len() {
                     if let Token::Word(filename) = &tokens[*i] {
-                        stderr = Some(filename.clone());
+                        stdout = Some((filename.clone(), append));
+                        stderr = Some((filename.clone(), append));
                         *i += 1;
                     }
                 }
             }
+            Token::RedirectErr | Token::RedirectErrAppend => {
+                let append = tokens[*i] == Token::RedirectErrAppend;
+                *i += 1;
+                if *i < tokens.len() {
+                    if let Token::Word(filename) = &tokens[*i] {
+                        stderr = Some((filename.clone(), append));
+                        *i += 1;
+                    }
+                }
+            }
+            Token::Pipe => {
+                stdout = None;
+                break;
+            }
             Token::PipeErr => {
                 *i += 1;
-                stderr_pipe = true;
+                stderr = None;
             }
             Token::PipeBoth => {
-                // TODO: Handle &| (pipe both stdout and stderr)
+                *i += 1;
+                stdout = None;
+                stderr = None;
+            }
+            Token::And | Token::Or => break,
+            Token::Word(word) => {
+                argv.push(word.clone());
                 *i += 1;
             }
-            Token::Pipe | Token::And | Token::Or => break,
-            Token::Word(word) => {
+            Token::LiteralWord(word) => {
                 argv.push(word.clone());
                 *i += 1;
             }
         }
     }
-
-    CommandExpr { argv, stdout, stderr, stderr_pipe }
+    CommandExpr {
+        argv,
+        stdout,
+        stderr,
+    }
 }

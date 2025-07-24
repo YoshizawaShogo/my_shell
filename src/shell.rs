@@ -5,8 +5,8 @@ use std::io::{Read, Write, stdin, stdout};
 use std::path::Path;
 
 use crate::prompt::get_prompt;
+use crate::term_size::read_terminal_size;
 use crate::{command, term_mode};
-use crate::term_size::{read_terminal_size};
 
 const RC_FILE: &str = ".my_shell_rc";
 const LOG_FILE: &str = ".my_shell_log";
@@ -68,24 +68,33 @@ impl Log {
 impl MyShell {
     pub fn new() -> Self {
         Self {
-            log: Log::new( 1000),
-            abbr: HashMap::new()
+            log: Log::new(1000),
+            abbr: HashMap::new(),
         }
-
     }
     fn expand_abbr(&self, buffer: &mut String) {
         if let Some(expanded) = self.abbr.get(buffer) {
             *buffer = expanded.clone()
         }
     }
-
+    fn execute(input: &str) -> i32 {
+        let tokens = command::tokenize::tokenize(input);
+        if tokens.is_empty() {
+            return 0;
+        }
+        let (expr, _) = command::parse::parse(&tokens);
+        term_mode::set_origin_term();
+        let r = command::execute::execute(&expr);
+        term_mode::set_raw_term();
+        r
+    }
     pub fn command_mode(&mut self) {
         let rc_path = env::var("HOME").unwrap() + "/" + RC_FILE;
         if !Path::new(&rc_path).is_file() {
             File::create(&rc_path).unwrap();
         }
         for line in fs::read_to_string(&rc_path).unwrap().split("\n") {
-            command::execute::run(line);
+            Self::execute(line);
         }
         term_mode::set_raw_term();
         println!("{}\r", get_prompt(read_terminal_size().width.into()));
@@ -131,7 +140,7 @@ impl MyShell {
                 10 => {
                     self.display_buffer(&buffer, cursor, read_terminal_size().width.into());
                     print!("\r\n");
-                    command::execute::run(&buffer);
+                    Self::execute(&buffer);
                     self.log.push(buffer.clone());
                     buffer.clear();
                     cursor = 0;
@@ -231,5 +240,3 @@ impl MyShell {
         write!(stdout().lock(), "{}", buf).unwrap();
     }
 }
-
-
