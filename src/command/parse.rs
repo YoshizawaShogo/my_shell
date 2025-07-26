@@ -8,10 +8,20 @@ pub enum Expr {
 }
 
 #[derive(Debug)]
+pub enum Redirection {
+    /// パイプでつなぐ
+    Pipe,
+    /// 親プロセスと同じように標準入出力を使う
+    Inherit,
+    /// ファイルに出力 (path, append?)
+    File { path: String, append: bool },
+}
+
+#[derive(Debug)]
 pub struct CommandExpr {
-    pub(crate) argv: Vec<String>,
-    pub(crate) stdout: Option<(String, bool)>, // (filename, append?), Pipe if None
-    pub(crate) stderr: Option<(String, bool)>, // (filename, append?), Pipe if None
+    pub(crate) argv:  Vec<String>,
+    pub(crate) stdout: Redirection,
+    pub(crate) stderr: Redirection,
 }
 
 pub fn parse(tokens: &[Token]) -> (Expr, usize) {
@@ -53,8 +63,8 @@ fn parse_pipe(tokens: &[Token], i: &mut usize) -> Expr {
 
 fn parse_command(tokens: &[Token], i: &mut usize) -> CommandExpr {
     let mut argv = Vec::new();
-    let mut stdout = None;
-    let mut stderr = None;
+    let mut stdout = Redirection::Inherit;
+    let mut stderr = Redirection::Inherit;
 
     while *i < tokens.len() {
         match &tokens[*i] {
@@ -63,7 +73,7 @@ fn parse_command(tokens: &[Token], i: &mut usize) -> CommandExpr {
                 *i += 1;
                 if *i < tokens.len() {
                     if let Token::Word(filename) = &tokens[*i] {
-                        stdout = Some((filename.clone(), append));
+                        stdout = Redirection::File { path: filename.clone(), append: append };
                         *i += 1;
                     }
                 }
@@ -73,8 +83,8 @@ fn parse_command(tokens: &[Token], i: &mut usize) -> CommandExpr {
                 *i += 1;
                 if *i < tokens.len() {
                     if let Token::Word(filename) = &tokens[*i] {
-                        stdout = Some((filename.clone(), append));
-                        stderr = Some((filename.clone(), append));
+                        stdout = Redirection::File { path: filename.clone(), append: append };
+                        stderr = Redirection::File { path: filename.clone(), append: append };
                         *i += 1;
                     }
                 }
@@ -84,23 +94,23 @@ fn parse_command(tokens: &[Token], i: &mut usize) -> CommandExpr {
                 *i += 1;
                 if *i < tokens.len() {
                     if let Token::Word(filename) = &tokens[*i] {
-                        stderr = Some((filename.clone(), append));
+                        stderr = Redirection::File { path: filename.clone(), append: append };
                         *i += 1;
                     }
                 }
             }
             Token::Pipe => {
-                stdout = None;
+                stdout = Redirection::Pipe;
                 break;
             }
             Token::PipeErr => {
                 *i += 1;
-                stderr = None;
+                stderr = Redirection::Pipe;
             }
             Token::PipeBoth => {
                 *i += 1;
-                stdout = None;
-                stderr = None;
+                stdout = Redirection::Pipe;
+                stderr = Redirection::Pipe;
             }
             Token::And | Token::Or => break,
             Token::Word(word) => {

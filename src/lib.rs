@@ -1,4 +1,5 @@
 pub mod command;
+pub mod error;
 pub mod prompt;
 pub mod shell;
 pub mod term_mode;

@@ -57,7 +57,7 @@ fn get_current_dir() -> String {
     let home = env::var("HOME").unwrap_or_default();
 
     if let Ok(stripped) = path.strip_prefix(&home) {
-        format!("~{}", stripped.display())
+        format!("~/{}", stripped.display())
     } else {
         path.display().to_string()
     }
