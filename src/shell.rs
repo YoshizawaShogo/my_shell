@@ -12,7 +12,7 @@ const RC_FILE: &str = ".my_shell_rc";
 const LOG_FILE: &str = ".my_shell_log";
 
 pub struct MyShell {
-    pub log: Log,
+    log: Log,
     pub abbrs: HashMap<String, String>,
     pub aliases: HashMap<String, String>,
     pub buffer: String,
@@ -21,8 +21,9 @@ pub struct MyShell {
 struct Log {
     log_path: String,
     capacity: usize,
-    log: VecDeque<String>,
+    command_log: VecDeque<String>,
     hash: HashSet<String>,
+    index: usize,
 }
 
 impl Log {
@@ -31,41 +32,55 @@ impl Log {
         if !Path::new(&log_path).is_file() {
             File::create(&log_path).unwrap();
         }
-        let mut log = VecDeque::new();
+        let mut command_log = VecDeque::new();
         let mut hash = HashSet::new();
         for line in fs::read_to_string(&log_path).unwrap().split("\n") {
             hash.insert(line.to_string());
-            log.push_back(line.to_string());
+            command_log.push_back(line.to_string());
         }
         Self {
             log_path: log_path,
             capacity,
-            log,
+            command_log,
             hash,
+            index: 0,
         }
     }
     fn push(&mut self, value: String) {
         for line in value.split("\n") {
             if self.hash.contains(line) {
-                let i = self.log.iter().position(|x| x == &line).unwrap();
-                self.log.remove(i);
+                let i = self.command_log.iter().position(|x| x == &line).unwrap();
+                self.command_log.remove(i);
             } else {
                 self.hash.insert(line.to_string());
             }
-            self.log.push_back(line.to_string());
+            self.command_log.push_back(line.to_string());
         }
-        while self.log.len() > self.capacity {
-            let poped = self.log.pop_front().unwrap();
+        while self.command_log.len() > self.capacity {
+            let poped = self.command_log.pop_front().unwrap();
             self.hash.remove(&poped);
         }
+        self.index = 0;
+    }
+    fn prev(&mut self) -> String {
+        if self.command_log.len() - 1 > self.index {
+            self.index += 1;
+        }
+        self.command_log[self.command_log.len() - self.index].clone()
+    }
+    fn next(&mut self) -> String {
+        if 1 < self.index {
+            self.index -= 1;
+        }
+        if self.index == 0 {
+            self.index = 1;
+        }
+        self.command_log[self.command_log.len() - self.index].clone()
     }
     fn store(&self) {
-        let log_str = self.log.iter().cloned().collect::<Vec<_>>().join("\n");
+        let log_str = self.command_log.iter().cloned().collect::<Vec<_>>().join("\n");
         fs::write(&self.log_path, log_str).unwrap();
     }
-    // fn ref_logs(&self) -> &VecDeque<String> {
-    //     &self.log
-    // }
 }
 
 impl MyShell {
@@ -162,9 +177,15 @@ impl MyShell {
                 // 11   => , // Ctrl + K      (VT: Vertical Tab)
                 // 12   => , // Ctrl + L      (FF: Form Feed / Clear screen)
                 13 => {} // Ctrl + M      (CR: Carriage Return)
-                // 14   => , // Ctrl + N      (SO: Shift Out)
+                14   => {
+                    self.buffer = self.log.next();
+                    self.cursor = self.buffer.len();                    
+                }, // Ctrl + N      (SO: Shift Out)
                 // 15   => , // Ctrl + O      (SI: Shift In)
-                // 16   => , // Ctrl + P      (DLE: Data Link Escape)
+                16   => {
+                    self.buffer = self.log.prev();
+                    self.cursor = self.buffer.len();
+                }, // Ctrl + P      (DLE: Data Link Escape)
                 // 17   => , // Ctrl + Q      (DC1: XON / Resume transmission)
                 // 18   => , // Ctrl + R      (DC2)
                 // 19   => , // Ctrl + S      (DC3: XOFF / Pause transmission)
