@@ -127,9 +127,7 @@ impl MyShell {
             match b {
                 // 0   => , // Ctrl + @      (NUL: Null)
                 1 => {
-                    if self.cursor < self.buffer.len() {
-                        self.cursor += 1;
-                    }            
+                    self.cursor = 0;           
                 } // Ctrl + A      (SOH: Start of Heading)
                 2 => {
                     if self.cursor > 0 {
@@ -148,7 +146,9 @@ impl MyShell {
                         self.buffer.remove(self.cursor);
                     }
                 } // Ctrl + D      (EOT: End of Transmission / EOF)
-                // 5   => , // Ctrl + E      (ENQ: Enquiry)
+                5   => {
+                    self.cursor = self.buffer.len();
+                }, // Ctrl + E      (ENQ: Enquiry)
                 6 => {
                     if self.cursor != self.buffer.len() {
                         self.cursor += 1;
@@ -192,7 +192,23 @@ impl MyShell {
                 // 20   => , // Ctrl + T      (DC4)
                 // 21   => , // Ctrl + U      (NAK: Negative Acknowledge)
                 // 22   => , // Ctrl + V      (SYN: Synchronous Idle)
-                // 23   => , // Ctrl + W      (ETB: End of Transmission Block)
+                23   => {
+                    if self.buffer.is_empty() {
+                        continue;
+                    }
+                    let mut buffer = self.buffer.clone();
+                    buffer.pop();
+                    self.cursor -= 1;
+                    while let Some(c) = buffer.chars().last() {
+                        if c.is_ascii_alphanumeric() || c == '"' || c == '\'' {
+                            buffer.pop();
+                            self.cursor -= 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    self.buffer = buffer;
+                }, // Ctrl + W      (ETB: End of Transmission Block)
                 // 24   => , // Ctrl + X      (CAN: Cancel)
                 // 25   => , // Ctrl + Y      (EM: End of Medium)
                 // 26   => , // Ctrl + Z      (SUB: Substitute / EOF on Windows)
