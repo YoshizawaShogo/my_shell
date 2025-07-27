@@ -12,8 +12,11 @@ const RC_FILE: &str = ".my_shell_rc";
 const LOG_FILE: &str = ".my_shell_log";
 
 pub struct MyShell {
-    log: Log,
-    abbr: HashMap<String, String>,
+    pub log: Log,
+    pub abbrs: HashMap<String, String>,
+    pub aliases: HashMap<String, String>,
+    pub buffer: String,
+    pub cursor: usize,
 }
 struct Log {
     log_path: String,
@@ -69,22 +72,26 @@ impl MyShell {
     pub fn new() -> Self {
         Self {
             log: Log::new(1000),
-            abbr: HashMap::new(),
+            abbrs: HashMap::new(),
+            aliases: HashMap::new(),
+            buffer: String::new(),
+            cursor: 0,
         }
     }
-    fn expand_abbr(&self, buffer: &mut String) {
-        if let Some(expanded) = self.abbr.get(buffer) {
-            *buffer = expanded.clone()
+    fn expand_abbr(&mut self) {
+        if let Some(expanded) = self.abbrs.get(&self.buffer) {
+            self.cursor += expanded.len() - self.buffer.len();
+            self.buffer = expanded.clone();
         }
     }
-    fn execute(input: &str) -> i32 {
+    fn execute(&mut self, input: &str) -> i32 {
         let tokens = command::tokenize::tokenize(input);
         if tokens.is_empty() {
             return 0;
         }
-        let (expr, _) = command::parse::parse(&tokens);
+        let (expr, _) = command::parse::parse(&tokens, &self.aliases);
         term_mode::set_origin_term();
-        let r = command::execute::execute(&expr);
+        let r = command::execute::execute(&expr, self);
         term_mode::set_raw_term();
         r
     }
@@ -94,56 +101,62 @@ impl MyShell {
             File::create(&rc_path).unwrap();
         }
         for line in fs::read_to_string(&rc_path).unwrap().split("\n") {
-            Self::execute(line);
+            self.execute(line);
         }
         term_mode::set_raw_term();
         println!("{}\r", get_prompt(read_terminal_size().width.into()));
-        let mut buffer = String::new();
-        let mut cursor = 0; // bufferのindex (0..=len)
+
         while let Some(b) = stdin().lock().by_ref().bytes().next() {
             let b = b.unwrap();
-            self.clear_lines(&buffer, cursor, read_terminal_size().width.into());
+            self.clear_lines(read_terminal_size().width.into());
             match b {
                 // 0   => , // Ctrl + @      (NUL: Null)
-                1 => {} // Ctrl + A      (SOH: Start of Heading)
+                1 => {
+                    if self.cursor < self.buffer.len() {
+                        self.cursor += 1;
+                    }            
+                } // Ctrl + A      (SOH: Start of Heading)
                 2 => {
-                    if cursor != 0 {
-                        cursor -= 1;
+                    if self.cursor > 0 {
+                        self.cursor -= 1;
                     }
                 } // Ctrl + B      (STX: Start of Text)
                 3 => {
-                    buffer.clear();
-                    cursor = 0;
+                    self.buffer.clear();
+                    self.cursor = 0;
                 } // Ctrl + C      (ETX: End of Text / Interrupt)
                 4 => {
-                    if buffer.is_empty() {
+                    if self.buffer.is_empty() {
                         self.log.store();
                         return;
-                    } else if cursor != buffer.len() {
-                        buffer.remove(cursor);
+                    } else if self.cursor != self.buffer.len() {
+                        self.buffer.remove(self.cursor);
                     }
                 } // Ctrl + D      (EOT: End of Transmission / EOF)
                 // 5   => , // Ctrl + E      (ENQ: Enquiry)
                 6 => {
-                    if cursor != buffer.len() {
-                        cursor += 1;
+                    if self.cursor != self.buffer.len() {
+                        self.cursor += 1;
                     }
                 } // Ctrl + F      (ACK: Acknowledge)
                 // 7   => , // Ctrl + G      (BEL: Bell / Beep)
                 8 => {
-                    if !buffer.is_empty() && cursor != 0 {
-                        buffer.remove(cursor - 1);
-                        cursor -= 1;
+                    if !self.buffer.is_empty() && self.cursor != 0 {
+                        self.buffer.remove(self.cursor - 1);
+                        self.cursor -= 1;
                     }
                 } // Ctrl + H      (BS: Backspace)
                 // 9   => , // Ctrl + I      (HT: Horizontal Tab)
                 10 => {
-                    self.display_buffer(&buffer, cursor, read_terminal_size().width.into());
+                    if !self.buffer.contains(" ") {
+                        self.expand_abbr();
+                    }
+                    self.display_buffer(read_terminal_size().width.into());
                     print!("\r\n");
-                    Self::execute(&buffer);
-                    self.log.push(buffer.clone());
-                    buffer.clear();
-                    cursor = 0;
+                    self.execute(&self.buffer.clone());
+                    self.log.push(self.buffer.clone());
+                    self.buffer.clear();
+                    self.cursor = 0;
                     println!("\r{}\r", get_prompt(read_terminal_size().width.into()));
                 } // Ctrl + J      (LF: Line Feed / Newline)
                 // 11   => , // Ctrl + K      (VT: Vertical Tab)
@@ -169,29 +182,29 @@ impl MyShell {
                 // 31   => , // Ctrl + _      (US: Unit Separator)
                 32..=126 => {
                     if b == 32 {
-                        if !buffer.contains(" ") {
-                            self.expand_abbr(&mut buffer);
+                        if !self.buffer.contains(" ") {
+                            self.expand_abbr();
                         }
                     }
-                    buffer.insert(cursor, b as char);
-                    cursor += 1;
+                    self.buffer.insert(self.cursor, b as char);
+                    self.cursor += 1;
                 }
                 // 127   => , // Ctrl + ?      (DEL: Delete)
                 _ => {}
             }
-            self.display_buffer(&buffer, cursor, read_terminal_size().width.into());
+            self.display_buffer(read_terminal_size().width.into());
             stdout().lock().flush().unwrap();
         }
     }
-    fn clear_lines(&mut self, buffer: &str, mut cursor: usize, width: usize) {
-        let buffer_len = buffer.len();
+    fn clear_lines(&mut self, width: usize) {
+        let buffer_len = self.buffer.len();
         let mut buf = String::new();
 
         let num_lines = ((buffer_len + width - 1) / width).saturating_sub(1);
 
         // カーソルをバッファの先頭行に戻す
-        while cursor >= width {
-            cursor -= width;
+        while self.cursor >= width {
+            self.cursor -= width;
             buf += "\x1b[1A"; // 上に移動
         }
 
@@ -214,13 +227,14 @@ impl MyShell {
         write!(stdout().lock(), "{}", buf).unwrap();
     }
 
-    fn display_buffer(&mut self, mut buffer: &str, mut cursor: usize, width: usize) {
+    fn display_buffer(&mut self, width: usize) {
+        let mut buffer = self.buffer.clone();
         let num_lines = ((buffer.len() + width - 1) / width).saturating_sub(1);
         let mut buf = String::new();
         while buffer.len() >= width as usize {
             buf += &buffer[..width];
             buf += "\r\n";
-            buffer = &buffer[width..];
+            buffer = buffer[width..].to_string();
         }
         buf += &buffer;
 
@@ -230,12 +244,12 @@ impl MyShell {
         }
         buf += "\x1b[G"; // 行頭へ
 
-        while cursor >= width {
+        while self.cursor >= width {
             buf += "\x1b[1B";
-            cursor -= width;
+            self.cursor -= width;
         }
 
-        buf += &"\x1b[1C".repeat(cursor);
+        buf += &"\x1b[1C".repeat(self.cursor);
 
         write!(stdout().lock(), "{}", buf).unwrap();
     }

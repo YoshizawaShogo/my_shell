@@ -1,5 +1,3 @@
-pub mod abbr;
-pub mod alias;
 pub mod builtin;
 pub mod execute;
 pub mod parse;

@@ -3,34 +3,34 @@ use std::{
     process::{Command, Stdio},
 };
 
-use crate::command::{
+use crate::{command::{
     builtin::BUILTIN,
     parse::{CommandExpr, Expr, Redirection},
-};
+}, shell::MyShell};
 
 use std::process::Child;
 
-pub fn execute(expr: &Expr) -> i32 {
+pub fn execute(expr: &Expr, shell: &mut MyShell) -> i32 {
     match expr {
         Expr::And(lhs, rhs) => {
-            if execute(lhs) == 0 {
-                execute(rhs)
+            if execute(lhs, shell) == 0 {
+                execute(rhs, shell)
             } else {
                 1
             }
         }
         Expr::Or(lhs, rhs) => {
-            if execute(lhs) != 0 {
-                execute(rhs)
+            if execute(lhs, shell) != 0 {
+                execute(rhs, shell)
             } else {
                 0
             }
         }
-        Expr::Pipe(commands) => execute_pipeline(commands),
+        Expr::Pipe(commands) => execute_pipeline(commands, shell),
     }
 }
 
-pub fn execute_pipeline(commands: &[CommandExpr]) -> i32 {
+pub fn execute_pipeline(commands: &[CommandExpr], shell: &mut MyShell) -> i32 {
     if commands.is_empty() {
         return 0;
     }
@@ -38,8 +38,9 @@ pub fn execute_pipeline(commands: &[CommandExpr]) -> i32 {
     let mut prev_stdout: Option<std::process::ChildStdout> = None;
 
     for (i, cmd) in commands.iter().enumerate() {
+        let cmd_name = &cmd.cmd_name;
+        
         // 1. BUILTIN の実行
-        let cmd_name = &cmd.argv[0];
         if BUILTIN.contains(&cmd_name.as_str()) {
             if let Some(prev_child) = children.last_mut() {
                 let _ = prev_child.wait(); // 結果は無視
@@ -50,7 +51,7 @@ pub fn execute_pipeline(commands: &[CommandExpr]) -> i32 {
                 let _ = out.read_to_string(&mut pipein);
             }
             let pipein = pipein.split('\n').next().unwrap_or("");
-            execute_builtin(cmd_name, &cmd.argv[1..], pipein);
+            execute_builtin(cmd_name, &cmd.argv, pipein, shell);
             continue;
         }
 
@@ -61,8 +62,8 @@ pub fn execute_pipeline(commands: &[CommandExpr]) -> i32 {
             .unwrap_or_else(Stdio::inherit);
 
         // 3. Command の組み立て
-        let mut cmd_proc = Command::new(&cmd.argv[0]);
-        cmd_proc.args(&cmd.argv[1..]).stdin(stdin);
+        let mut cmd_proc = Command::new(&cmd_name);
+        cmd_proc.args(&cmd.argv).stdin(stdin);
 
         // 4. stdout のリダイレクト／パイプ／継承
         match &cmd.stdout {
@@ -120,7 +121,7 @@ pub fn execute_pipeline(commands: &[CommandExpr]) -> i32 {
                         .open(path)
                 };
                 let file = file.unwrap_or_else(|e| {
-                    eprintln!("stderr ファイル '{}' を開けません: {}", path, e);
+                    eprintln!("Failed to open stderr file '{}': {}", path, e);
                     std::process::exit(1);
                 });
                 cmd_proc.stderr(file);
@@ -131,7 +132,7 @@ pub fn execute_pipeline(commands: &[CommandExpr]) -> i32 {
         let mut child = match cmd_proc.spawn() {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("コマンド '{}' の起動失敗: {}", cmd.argv[0], e);
+                eprintln!("Failed to start command '{}': {}", cmd_name, e);
                 return 1;
             }
         };
@@ -153,7 +154,7 @@ pub fn execute_pipeline(commands: &[CommandExpr]) -> i32 {
                 }
             }
             Err(e) => {
-                eprintln!("子プロセスの待機に失敗: {}", e);
+                eprintln!("Failed to wait for child process: {}", e);
                 last_status = 1;
             }
         }
@@ -161,15 +162,16 @@ pub fn execute_pipeline(commands: &[CommandExpr]) -> i32 {
     last_status
 }
 
-fn execute_builtin(cmd: &str, args: &[String], pipein: &str) {
+fn execute_builtin(cmd: &str, args: &[String], pipein: &str, shell: &mut MyShell) {
     match cmd {
         "cd" => {
-            let dir = match (!pipein.is_empty(), args.iter().as_slice()) {
-                (true, []) => pipein, // pipeinに入力があって、argsが空
-                (false, [d]) => d,    // pipein空文字かつargsに1要素
-                _ => return,          // それ以外はエラー扱い
-            };
-            crate::command::builtin::cd(dir);
+            crate::command::builtin::cd(args, pipein);
+        }
+        "abbr" => {
+            crate::command::builtin::register_abbr(args, &mut shell.abbrs);
+        }
+        "alias" => {
+            crate::command::builtin::register_alias(args, &mut shell.aliases);
         }
         _ => unreachable!(),
     }
