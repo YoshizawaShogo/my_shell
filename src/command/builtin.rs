@@ -1,4 +1,4 @@
-pub static BUILTIN: &[&str] = &["cd", "popd", "abbr", "alias"];
+pub static BUILTIN: &[&str] = &["cd", "popd", "abbr", "alias", "history"];
 
 use std::collections::HashMap;
 use std::env;
@@ -9,7 +9,7 @@ pub fn cd(args: &[String], pipein: &str, cd_history: &mut Vec<PathBuf>) {
         (true, []) => pipein.to_string(), // pipeinに入力があって、argsが空
         (false, [d]) => d.to_string(),    // pipein空文字かつargsに1要素
         (false, []) => env::var("HOME").unwrap(),
-        _ => return,          // それ以外はエラー扱い
+        _ => return, // それ以外はエラー扱い
     };
     let current_dir = match env::current_dir() {
         Ok(path) => path,
@@ -85,4 +85,8 @@ pub fn register_alias(args: &[String], aliases: &mut HashMap<String, String>) {
             eprintln!("  alias <name> <value>   # Register alias");
         }
     }
+}
+
+pub fn show_history(history: &[String]) {
+    println!("{}", history.join("\n"));
 }

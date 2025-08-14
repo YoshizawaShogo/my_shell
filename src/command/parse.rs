@@ -22,7 +22,7 @@ pub enum Redirection {
 #[derive(Debug)]
 pub struct CommandExpr {
     pub(crate) cmd_name: String,
-    pub(crate) argv:  Vec<String>,
+    pub(crate) argv: Vec<String>,
     pub(crate) stdout: Redirection,
     pub(crate) stderr: Redirection,
 }
@@ -64,7 +64,11 @@ fn parse_pipe(tokens: &[Token], i: &mut usize, aliases: &HashMap<String, String>
     }
 }
 
-fn parse_command(tokens: &[Token], i: &mut usize, aliases: &HashMap<String, String>) -> CommandExpr {
+fn parse_command(
+    tokens: &[Token],
+    i: &mut usize,
+    aliases: &HashMap<String, String>,
+) -> CommandExpr {
     let mut cmd_name = match &tokens[*i] {
         Token::Word(x) => x.clone(),
         Token::LiteralWord(x) => x.clone(),
@@ -91,7 +95,10 @@ fn parse_command(tokens: &[Token], i: &mut usize, aliases: &HashMap<String, Stri
                 *i += 1;
                 if *i < tokens.len() {
                     if let Token::Word(filename) = &tokens[*i] {
-                        stdout = Redirection::File { path: filename.clone(), append: append };
+                        stdout = Redirection::File {
+                            path: filename.clone(),
+                            append: append,
+                        };
                         *i += 1;
                     }
                 }
@@ -101,8 +108,14 @@ fn parse_command(tokens: &[Token], i: &mut usize, aliases: &HashMap<String, Stri
                 *i += 1;
                 if *i < tokens.len() {
                     if let Token::Word(filename) = &tokens[*i] {
-                        stdout = Redirection::File { path: filename.clone(), append: append };
-                        stderr = Redirection::File { path: filename.clone(), append: append };
+                        stdout = Redirection::File {
+                            path: filename.clone(),
+                            append: append,
+                        };
+                        stderr = Redirection::File {
+                            path: filename.clone(),
+                            append: append,
+                        };
                         *i += 1;
                     }
                 }
@@ -112,7 +125,10 @@ fn parse_command(tokens: &[Token], i: &mut usize, aliases: &HashMap<String, Stri
                 *i += 1;
                 if *i < tokens.len() {
                     if let Token::Word(filename) = &tokens[*i] {
-                        stderr = Redirection::File { path: filename.clone(), append: append };
+                        stderr = Redirection::File {
+                            path: filename.clone(),
+                            append: append,
+                        };
                         *i += 1;
                     }
                 }

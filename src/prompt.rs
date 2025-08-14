@@ -4,7 +4,7 @@ use std::fs;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub(crate) fn get_prompt(width: usize) -> String {
+pub(crate) fn display_prompt(width: usize) {
     // ANSI Colors
     // let blue = "\x1b[34m";
     let cyan = "\x1b[36m";
@@ -38,7 +38,10 @@ pub(crate) fn get_prompt(width: usize) -> String {
     let space_count = width.saturating_sub(strip_ansi(&left).len() + 8); // clock は8文字 "hh:mm:ss"
     let spaces = " ".repeat(space_count);
 
-    format!("{}{}{}{}{}", left, spaces, gray, clock, reset)
+    print!(
+        "{}{}{}{}{}\r\n\x1b[s\x1b[0J",
+        left, spaces, gray, clock, reset
+    );
 }
 
 fn get_username() -> String {

@@ -3,10 +3,13 @@ use std::{
     process::{Command, Stdio},
 };
 
-use crate::{command::{
-    builtin::BUILTIN,
-    parse::{CommandExpr, Expr, Redirection},
-}, shell::MyShell};
+use crate::{
+    command::{
+        builtin::BUILTIN,
+        parse::{CommandExpr, Expr, Redirection},
+    },
+    shell::MyShell,
+};
 
 use std::process::Child;
 
@@ -39,7 +42,7 @@ pub fn execute_pipeline(commands: &[CommandExpr], shell: &mut MyShell) -> i32 {
 
     for (i, cmd) in commands.iter().enumerate() {
         let cmd_name = &cmd.cmd_name;
-        
+
         // 1. BUILTIN の実行
         if BUILTIN.contains(&cmd_name.as_str()) {
             if let Some(prev_child) = children.last_mut() {
@@ -175,6 +178,9 @@ fn execute_builtin(cmd: &str, args: &[String], pipein: &str, shell: &mut MyShell
         }
         "alias" => {
             crate::command::builtin::register_alias(args, &mut shell.aliases);
+        }
+        "history" => {
+            crate::command::builtin::show_history(&shell.history.log.make_contiguous());
         }
         _ => unreachable!(),
     }

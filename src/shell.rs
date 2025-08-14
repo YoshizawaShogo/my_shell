@@ -4,7 +4,7 @@ use std::fs::{self, File};
 use std::io::{Read, Write, stdin, stdout};
 use std::path::{Path, PathBuf};
 
-use crate::prompt::get_prompt;
+use crate::prompt::display_prompt;
 use crate::term_size::read_terminal_size;
 use crate::{command, term_mode};
 
@@ -12,17 +12,17 @@ const RC_FILE: &str = ".my_shell_rc";
 const HISTORY_FILE: &str = ".my_shell_log";
 
 pub struct MyShell {
-    history: Log,
+    pub history: Log,
     pub abbrs: HashMap<String, String>,
     pub aliases: HashMap<String, String>,
     pub buffer: String,
     pub cursor: usize,
     pub dir_stack: Vec<PathBuf>,
 }
-struct Log {
+pub struct Log {
     log_path: String,
     capacity: usize,
-    command_log: VecDeque<String>,
+    pub log: VecDeque<String>,
     hash: HashSet<String>,
     index: usize,
 }
@@ -42,7 +42,7 @@ impl Log {
         Self {
             log_path: history_path,
             capacity,
-            command_log,
+            log: command_log,
             hash,
             index: 0,
         }
@@ -50,24 +50,28 @@ impl Log {
     fn push(&mut self, value: String) {
         for line in value.split("\n") {
             if self.hash.contains(line) {
-                let i = self.command_log.iter().position(|x| x == &line).unwrap();
-                self.command_log.remove(i);
+                let i = self
+                    .log
+                    .iter()
+                    .position(|x| x == &line)
+                    .unwrap();
+                self.log.remove(i);
             } else {
                 self.hash.insert(line.to_string());
             }
-            self.command_log.push_back(line.to_string());
+            self.log.push_back(line.to_string());
         }
-        while self.command_log.len() > self.capacity {
-            let poped = self.command_log.pop_front().unwrap();
+        while self.log.len() > self.capacity {
+            let poped = self.log.pop_front().unwrap();
             self.hash.remove(&poped);
         }
         self.index = 0;
     }
     fn prev(&mut self) -> String {
-        if self.command_log.len() - 1 > self.index {
+        if self.log.len() - 1 > self.index {
             self.index += 1;
         }
-        self.command_log[self.command_log.len() - self.index].clone()
+        self.log[self.log.len() - self.index].clone()
     }
     fn next(&mut self) -> String {
         if 1 < self.index {
@@ -76,10 +80,15 @@ impl Log {
         if self.index == 0 {
             self.index = 1;
         }
-        self.command_log[self.command_log.len() - self.index].clone()
+        self.log[self.log.len() - self.index].clone()
     }
     fn store(&self) {
-        let log_str = self.command_log.iter().cloned().collect::<Vec<_>>().join("\n");
+        let log_str = self
+            .log
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n");
         fs::write(&self.log_path, log_str).unwrap();
     }
 }
@@ -121,15 +130,15 @@ impl MyShell {
             self.execute(line);
         }
         term_mode::set_raw_term();
-        println!("{}\r", get_prompt(read_terminal_size().width.into()));
+        display_prompt(read_terminal_size().width.into());
 
         while let Some(b) = stdin().lock().by_ref().bytes().next() {
             let b = b.unwrap();
-            self.clear_lines(read_terminal_size().width.into());
+            // self.clear_lines(read_terminal_size().width.into());
             match b {
                 // 0   => , // Ctrl + @      (NUL: Null)
                 1 => {
-                    self.cursor = 0;           
+                    self.cursor = 0;
                 } // Ctrl + A      (SOH: Start of Heading)
                 2 => {
                     if self.cursor > 0 {
@@ -139,6 +148,7 @@ impl MyShell {
                 3 => {
                     self.buffer.clear();
                     self.cursor = 0;
+                    write!(stdout().lock(), "\x1b[u\x1b[0J").unwrap();
                 } // Ctrl + C      (ETX: End of Text / Interrupt)
                 4 => {
                     if self.buffer.is_empty() {
@@ -148,11 +158,22 @@ impl MyShell {
                         self.buffer.remove(self.cursor);
                     }
                 } // Ctrl + D      (EOT: End of Transmission / EOF)
-                5   => {
+                5 => {
                     self.cursor = self.buffer.len();
-                }, // Ctrl + E      (ENQ: Enquiry)
+                } // Ctrl + E      (ENQ: Enquiry)
                 6 => {
-                    if self.cursor != self.buffer.len() {
+                    if self.cursor == self.buffer.len() {
+                        if let Some(h) = self
+                            .history
+                            .log
+                            .iter()
+                            .rev()
+                            .find(|h| h.starts_with(&self.buffer))
+                            {
+                                self.buffer = h.clone();
+                                self.cursor = self.buffer.len();
+                            }
+                    } else {
                         self.cursor += 1;
                     }
                 } // Ctrl + F      (ACK: Acknowledge)
@@ -167,34 +188,34 @@ impl MyShell {
                 10 => {
                     if !self.buffer.contains(" ") {
                         self.expand_abbr();
+                        self.display_buffer(read_terminal_size().width.into());
                     }
-                    self.display_buffer(read_terminal_size().width.into());
-                    print!("\r\n");
+                    write!(stdout().lock(), "\r\n").unwrap();
                     self.execute(&self.buffer.clone());
                     self.history.push(self.buffer.clone());
                     self.buffer.clear();
                     self.cursor = 0;
-                    println!("\r{}\r", get_prompt(read_terminal_size().width.into()));
+                    display_prompt(read_terminal_size().width.into());
                 } // Ctrl + J      (LF: Line Feed / Newline)
                 // 11   => , // Ctrl + K      (VT: Vertical Tab)
                 // 12   => , // Ctrl + L      (FF: Form Feed / Clear screen)
                 13 => {} // Ctrl + M      (CR: Carriage Return)
-                14   => {
+                14 => {
                     self.buffer = self.history.next();
-                    self.cursor = self.buffer.len();                    
-                }, // Ctrl + N      (SO: Shift Out)
+                    self.cursor = self.buffer.len();
+                } // Ctrl + N      (SO: Shift Out)
                 // 15   => , // Ctrl + O      (SI: Shift In)
-                16   => {
+                16 => {
                     self.buffer = self.history.prev();
                     self.cursor = self.buffer.len();
-                }, // Ctrl + P      (DLE: Data Link Escape)
+                } // Ctrl + P      (DLE: Data Link Escape)
                 // 17   => , // Ctrl + Q      (DC1: XON / Resume transmission)
                 // 18   => , // Ctrl + R      (DC2)
                 // 19   => , // Ctrl + S      (DC3: XOFF / Pause transmission)
                 // 20   => , // Ctrl + T      (DC4)
                 // 21   => , // Ctrl + U      (NAK: Negative Acknowledge)
                 // 22   => , // Ctrl + V      (SYN: Synchronous Idle)
-                23   => {
+                23 => {
                     if self.buffer.is_empty() {
                         continue;
                     }
@@ -210,7 +231,7 @@ impl MyShell {
                         }
                     }
                     self.buffer = buffer;
-                }, // Ctrl + W      (ETB: End of Transmission Block)
+                } // Ctrl + W      (ETB: End of Transmission Block)
                 // 24   => , // Ctrl + X      (CAN: Cancel)
                 // 25   => , // Ctrl + Y      (EM: End of Medium)
                 // 26   => , // Ctrl + Z      (SUB: Substitute / EOF on Windows)
@@ -235,61 +256,51 @@ impl MyShell {
             stdout().lock().flush().unwrap();
         }
     }
-    fn clear_lines(&mut self, width: usize) {
-        let buffer_len = self.buffer.len();
-        let mut buf = String::new();
-
-        let num_lines = ((buffer_len + width - 1) / width).saturating_sub(1);
-
-        // カーソルをバッファの先頭行に戻す
-        while self.cursor >= width {
-            self.cursor -= width;
-            buf += "\x1b[1A"; // 上に移動
-        }
-
-        buf += "\x1b[2K"; // 現在の行を削除
-
-        // 現在の行を含め、下の行もすべて削除
-        for _ in 0..num_lines {
-            buf += "\x1b[1B"; // 次の行へ
-            buf += "\x1b[2K"; // 現在の行を削除
-        }
-
-        // 行末にいるので、行数分だけ上へ戻す
-        for _ in 0..num_lines {
-            buf += "\x1b[1A";
-        }
-
-        // 行頭に戻る（\x1b[G でも良いが、\x1b[H の方が明確）
-        buf += "\x1b[G";
-
-        write!(stdout().lock(), "{}", buf).unwrap();
-    }
 
     fn display_buffer(&mut self, width: usize) {
-        let mut buffer = self.buffer.clone();
-        let num_lines = ((buffer.len() + width - 1) / width).saturating_sub(1);
-        let mut buf = String::new();
-        while buffer.len() >= width as usize {
-            buf += &buffer[..width];
-            buf += "\r\n";
-            buffer = buffer[width..].to_string();
+        let origin = &self.buffer;
+        let origin_len = self.buffer.len();
+        let mut output_str = if !self.buffer.is_empty() {
+            if let Some(h) = self
+                .history
+                .log
+                .iter()
+                .rev()
+                .find(|h| h.starts_with(origin))
+            {
+                h
+            } else {
+                origin
+            }
+        } else {
+            origin
         }
-        buf += &buffer;
+        .chars();
 
-        // 行末にいるので、行数分だけ上へ戻す
-        for _ in 0..num_lines {
-            buf += "\x1b[1A";
+        let mut i = 0;
+        let mut out = String::new();
+
+        out.push_str("\x1b[u"); // restore cursor (元の行へ戻る)
+        out.push_str("\x1b[0J"); // clear from cursor to end of screen
+
+        while let Some(c) = output_str.next() {
+            if i == origin_len {
+                out.push_str("\x1b[90m"); // 明るい黒=薄い灰色
+            }
+            out.push(c);
+            i += 1;
         }
-        buf += "\x1b[G"; // 行頭へ
+        out.push_str("\x1b[0m"); // 色リセット
 
-        while self.cursor >= width {
-            buf += "\x1b[1B";
-            self.cursor -= width;
+        // 3) カーソル移動
+        out.push_str("\x1b[u"); // restore cursor (元の行へ戻る)
+        let mut cursor = self.cursor.clone();
+        while cursor >= width {
+            out += "\x1b[1B";
+            cursor -= width;
         }
+        out += &"\x1b[1C".repeat(cursor);
 
-        buf += &"\x1b[1C".repeat(self.cursor);
-
-        write!(stdout().lock(), "{}", buf).unwrap();
+        write!(stdout().lock(), "{}", out).unwrap();
     }
 }
