@@ -9,7 +9,7 @@ use crate::term_size::read_terminal_size;
 use crate::{command, term_mode};
 
 const RC_FILE: &str = ".my_shell_rc";
-const LOG_FILE: &str = ".my_shell_log";
+const HISTORY_FILE: &str = ".my_shell_log";
 
 pub struct MyShell {
     log: Log,
@@ -28,18 +28,18 @@ struct Log {
 
 impl Log {
     fn new(capacity: usize) -> Self {
-        let log_path = env::var("HOME").unwrap() + "/" + LOG_FILE;
-        if !Path::new(&log_path).is_file() {
-            File::create(&log_path).unwrap();
+        let history_path = env::var("HOME").unwrap() + "/" + HISTORY_FILE;
+        if !Path::new(&history_path).is_file() {
+            File::create(&history_path).unwrap();
         }
         let mut command_log = VecDeque::new();
         let mut hash = HashSet::new();
-        for line in fs::read_to_string(&log_path).unwrap().split("\n") {
+        for line in fs::read_to_string(&history_path).unwrap().split("\n") {
             hash.insert(line.to_string());
             command_log.push_back(line.to_string());
         }
         Self {
-            log_path: log_path,
+            log_path: history_path,
             capacity,
             command_log,
             hash,
