@@ -89,7 +89,8 @@ fn get_git_branch_and_status() -> Option<(String, bool)> {
 
 fn get_current_time_string() -> String {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-    let seconds = now.as_secs() % 86400;
+    // JSTはUTC+9時間（9*3600秒）
+    let seconds = (now.as_secs() + 9 * 3600) % 86400;
     let hours = seconds / 3600;
     let minutes = (seconds % 3600) / 60;
     let seconds = seconds % 60;

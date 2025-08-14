@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::env;
 use std::fs::{self, File};
 use std::io::{Read, Write, stdin, stdout};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::prompt::get_prompt;
 use crate::term_size::read_terminal_size;
@@ -12,11 +12,12 @@ const RC_FILE: &str = ".my_shell_rc";
 const HISTORY_FILE: &str = ".my_shell_log";
 
 pub struct MyShell {
-    log: Log,
+    history: Log,
     pub abbrs: HashMap<String, String>,
     pub aliases: HashMap<String, String>,
     pub buffer: String,
     pub cursor: usize,
+    pub dir_stack: Vec<PathBuf>,
 }
 struct Log {
     log_path: String,
@@ -86,11 +87,12 @@ impl Log {
 impl MyShell {
     pub fn new() -> Self {
         Self {
-            log: Log::new(1000),
+            history: Log::new(1000),
             abbrs: HashMap::new(),
             aliases: HashMap::new(),
             buffer: String::new(),
             cursor: 0,
+            dir_stack: Vec::new(),
         }
     }
     fn expand_abbr(&mut self) {
@@ -140,7 +142,7 @@ impl MyShell {
                 } // Ctrl + C      (ETX: End of Text / Interrupt)
                 4 => {
                     if self.buffer.is_empty() {
-                        self.log.store();
+                        self.history.store();
                         return;
                     } else if self.cursor != self.buffer.len() {
                         self.buffer.remove(self.cursor);
@@ -169,7 +171,7 @@ impl MyShell {
                     self.display_buffer(read_terminal_size().width.into());
                     print!("\r\n");
                     self.execute(&self.buffer.clone());
-                    self.log.push(self.buffer.clone());
+                    self.history.push(self.buffer.clone());
                     self.buffer.clear();
                     self.cursor = 0;
                     println!("\r{}\r", get_prompt(read_terminal_size().width.into()));
@@ -178,12 +180,12 @@ impl MyShell {
                 // 12   => , // Ctrl + L      (FF: Form Feed / Clear screen)
                 13 => {} // Ctrl + M      (CR: Carriage Return)
                 14   => {
-                    self.buffer = self.log.next();
+                    self.buffer = self.history.next();
                     self.cursor = self.buffer.len();                    
                 }, // Ctrl + N      (SO: Shift Out)
                 // 15   => , // Ctrl + O      (SI: Shift In)
                 16   => {
-                    self.buffer = self.log.prev();
+                    self.buffer = self.history.prev();
                     self.cursor = self.buffer.len();
                 }, // Ctrl + P      (DLE: Data Link Escape)
                 // 17   => , // Ctrl + Q      (DC1: XON / Resume transmission)

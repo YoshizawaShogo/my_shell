@@ -165,7 +165,10 @@ pub fn execute_pipeline(commands: &[CommandExpr], shell: &mut MyShell) -> i32 {
 fn execute_builtin(cmd: &str, args: &[String], pipein: &str, shell: &mut MyShell) {
     match cmd {
         "cd" => {
-            crate::command::builtin::cd(args, pipein);
+            crate::command::builtin::cd(args, pipein, &mut shell.dir_stack);
+        }
+        "popd" => {
+            crate::command::builtin::popd(&mut shell.dir_stack);
         }
         "abbr" => {
             crate::command::builtin::register_abbr(args, &mut shell.abbrs);

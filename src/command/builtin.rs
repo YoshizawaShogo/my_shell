@@ -1,26 +1,39 @@
-pub static BUILTIN: &[&str] = &["cd", "abbr", "alias"];
+pub static BUILTIN: &[&str] = &["cd", "popd", "abbr", "alias"];
 
 use std::collections::HashMap;
 use std::env;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-pub fn cd(args: &[String], pipein: &str) {
+pub fn cd(args: &[String], pipein: &str, cd_history: &mut Vec<PathBuf>) {
     let dir = match (!pipein.is_empty(), args.iter().as_slice()) {
-        (true, []) => pipein, // pipeinに入力があって、argsが空
-        (false, [d]) => d,    // pipein空文字かつargsに1要素
-        (false, []) => {
-            let home = env::var("HOME").unwrap_or_default();
-            env::set_current_dir(&Path::new(&home)).unwrap();
-            return;
-        }
+        (true, []) => pipein.to_string(), // pipeinに入力があって、argsが空
+        (false, [d]) => d.to_string(),    // pipein空文字かつargsに1要素
+        (false, []) => env::var("HOME").unwrap(),
         _ => return,          // それ以外はエラー扱い
     };
-    let path = Path::new(dir);
-    match env::set_current_dir(&path) {
-        Ok(()) => {}
+    let current_dir = match env::current_dir() {
+        Ok(path) => path,
         Err(e) => {
-            eprintln!("cd: '{}': {}", e, dir);
+            eprintln!("Error: {}", e);
+            return;
         }
+    };
+    let path = Path::new(&dir);
+    match env::set_current_dir(&path) {
+        Ok(()) => cd_history.push(current_dir),
+        Err(e) => eprintln!("cd: '{}': {}", dir, e),
+    }
+}
+
+pub fn popd(cd_history: &mut Vec<PathBuf>) {
+    if cd_history.is_empty() {
+        eprintln!("popd: cd_stack is empty.");
+        return;
+    }
+    let dir = cd_history.pop().unwrap();
+    match env::set_current_dir(&dir) {
+        Ok(()) => (),
+        Err(e) => eprintln!("popd: '{}': {}", dir.to_str().unwrap().to_string(), e),
     }
 }
 
