@@ -1,4 +1,4 @@
-pub static BUILTIN: &[&str] = &["cd", "popd", "abbr", "alias", "history"];
+pub static BUILTIN: &[&str] = &["cd", "popd", "abbr", "alias", "history", "setenv", "env"];
 
 use std::collections::HashMap;
 use std::env;
@@ -89,4 +89,24 @@ pub fn register_alias(args: &[String], aliases: &mut HashMap<String, String>) {
 
 pub fn show_history(history: &[String]) {
     println!("{}", history.join("\n"));
+}
+
+pub fn set_env(args: &[String]) {
+    match args.len() {
+        2 => {
+            unsafe { 
+                std::env::set_var(args[0].clone(), args[1].clone()) };
+            }
+        _ => {
+            // 不正な引数の数
+            eprintln!("Usage:");
+            eprintln!("  setenv <variable> <value>   # set env");
+        }
+    }
+}
+
+pub fn show_env() {
+    for (key, value) in std::env::vars() {
+        println!("{}={}", key, value);
+    }
 }

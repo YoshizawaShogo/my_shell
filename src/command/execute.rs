@@ -182,6 +182,12 @@ fn execute_builtin(cmd: &str, args: &[String], pipein: &str, shell: &mut MyShell
         "history" => {
             crate::command::builtin::show_history(&shell.history.log.make_contiguous());
         }
+        "setenv" => {
+            crate::command::builtin::set_env(args);
+        }
+        "env" => {
+            crate::command::builtin::show_env();
+        }
         _ => unreachable!(),
     }
 }
