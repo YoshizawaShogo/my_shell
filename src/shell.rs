@@ -134,7 +134,10 @@ impl MyShell {
 
         while let Some(b) = stdin().lock().by_ref().bytes().next() {
             let b = b.unwrap();
-            // self.clear_lines(read_terminal_size().width.into());
+            let mut out = String::new();
+            out += &self.back_to_start_point(self.buffer.len(), read_terminal_size().width.into());
+            out += &self.delete_after();
+            write!(stdout().lock(), "{}", out).unwrap();
             match b {
                 // 0   => , // Ctrl + @      (NUL: Null)
                 1 => {
@@ -146,9 +149,12 @@ impl MyShell {
                     }
                 } // Ctrl + B      (STX: Start of Text)
                 3 => {
+                    let mut out = String::new();
+                    out += &self.back_to_start_point(self.buffer.len(), read_terminal_size().width.into());
+                    out += &self.delete_after();
+                    write!(stdout().lock(), "{}", out).unwrap();
                     self.buffer.clear();
                     self.cursor = 0;
-                    write!(stdout().lock(), "\x1b[u\x1b[0J").unwrap();
                 } // Ctrl + C      (ETX: End of Text / Interrupt)
                 4 => {
                     if self.buffer.is_empty() {
@@ -163,12 +169,10 @@ impl MyShell {
                 } // Ctrl + E      (ENQ: Enquiry)
                 6 => {
                     if self.cursor == self.buffer.len() {
-                        if let Some(h) = self
-                            .history
-                            .log
-                            .iter()
-                            .rev()
-                            .find(|h| h.starts_with(&self.buffer))
+                        if self.buffer.is_empty() {
+                            continue;
+                        }
+                        if let Some(h) = self.find_history_rev()
                             {
                                 self.buffer = h.clone();
                                 self.cursor = self.buffer.len();
@@ -188,8 +192,8 @@ impl MyShell {
                 10 => {
                     if !self.buffer.contains(" ") {
                         self.expand_abbr();
-                        self.display_buffer(read_terminal_size().width.into());
                     }
+                    self.display_buffer(read_terminal_size().width.into());
                     write!(stdout().lock(), "\r\n").unwrap();
                     self.execute(&self.buffer.clone());
                     self.history.push(self.buffer.clone());
@@ -257,16 +261,11 @@ impl MyShell {
         }
     }
 
-    fn display_buffer(&mut self, width: usize) {
+    fn display_buffer(&self, width: usize) {
         let origin = &self.buffer;
         let origin_len = self.buffer.len();
-        let mut output_str = if !self.buffer.is_empty() {
-            if let Some(h) = self
-                .history
-                .log
-                .iter()
-                .rev()
-                .find(|h| h.starts_with(origin))
+        let output_str = if !self.buffer.is_empty() {
+            if let Some(h) = self.find_history_rev()
             {
                 h
             } else {
@@ -274,26 +273,29 @@ impl MyShell {
             }
         } else {
             origin
-        }
-        .chars();
+        };
 
         let mut i = 0;
         let mut out = String::new();
 
-        out.push_str("\x1b[u"); // restore cursor (元の行へ戻る)
-        out.push_str("\x1b[0J"); // clear from cursor to end of screen
-
-        while let Some(c) = output_str.next() {
+        let mut output_chars = output_str.chars();
+        while let Some(c) = output_chars.next() {
             if i == origin_len {
                 out.push_str("\x1b[90m"); // 明るい黒=薄い灰色
+            }
+            if i == width {
+                out.push_str("\r\n");
             }
             out.push(c);
             i += 1;
         }
+        if i != 0 && i % width == 0 {
+            out.push_str("\r\n");
+        }
         out.push_str("\x1b[0m"); // 色リセット
 
         // 3) カーソル移動
-        out.push_str("\x1b[u"); // restore cursor (元の行へ戻る)
+        out += &self.back_to_start_point(output_str.len(), width);
         let mut cursor = self.cursor.clone();
         while cursor >= width {
             out += "\x1b[1B";
@@ -302,5 +304,21 @@ impl MyShell {
         out += &"\x1b[1C".repeat(cursor);
 
         write!(stdout().lock(), "{}", out).unwrap();
+    }
+
+    fn back_to_start_point(&self, buffer_len: usize, width: usize) -> String {
+        let row = buffer_len / width;
+        "\x1b[1A".repeat(row).to_string() + "\x1b[G"
+    }
+    fn delete_after(&self) -> String {
+        "\x1b[0J".to_string()
+    }
+    fn find_history_rev(&self) -> Option<&String> {
+        self
+            .history
+            .log
+            .iter()
+            .rev()
+            .find(|h| h.starts_with(&self.buffer))
     }
 }

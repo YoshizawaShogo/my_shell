@@ -19,13 +19,9 @@ pub(crate) fn display_prompt(width: usize) {
     let cwd = get_current_dir();
     let clock = get_current_time_string();
 
-    let git_info = match get_git_branch_and_status() {
-        Some((branch, dirty)) => {
-            if dirty {
-                format!(" on {}{}{} x{}", green, branch, reset, reset)
-            } else {
-                format!(" on {}{}{}", green, branch, reset)
-            }
+    let git_info = match get_git_branch() {
+        Some(branch) => {
+            format!(" on {}{}{}", green, branch, reset)
         }
         None => String::new(),
     };
@@ -39,7 +35,7 @@ pub(crate) fn display_prompt(width: usize) {
     let spaces = " ".repeat(space_count);
 
     print!(
-        "{}{}{}{}{}\r\n\x1b[s\x1b[0J",
+        "{}{}{}{}{}\r\n\x1b[0J",
         left, spaces, gray, clock, reset
     );
 }
@@ -66,7 +62,7 @@ fn get_current_dir() -> String {
     }
 }
 
-fn get_git_branch_and_status() -> Option<(String, bool)> {
+fn get_git_branch() -> Option<String> {
     let branch_output = Command::new("git")
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .output()
@@ -80,14 +76,7 @@ fn get_git_branch_and_status() -> Option<(String, bool)> {
         .trim()
         .to_string();
 
-    let status_output = Command::new("git")
-        .args(["status", "--porcelain"])
-        .output()
-        .ok()?;
-
-    let dirty = !status_output.stdout.is_empty();
-
-    Some((branch, dirty))
+    Some(branch)
 }
 
 fn get_current_time_string() -> String {
