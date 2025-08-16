@@ -1,6 +1,5 @@
 use std::{
-    io::Read,
-    process::{Command, Stdio},
+    env, io::Read, process::{Command, Stdio}
 };
 
 use crate::{
@@ -66,7 +65,28 @@ pub fn execute_pipeline(commands: &[CommandExpr], shell: &mut MyShell) -> i32 {
 
         // 3. Command の組み立て
         let mut cmd_proc = Command::new(&cmd_name);
-        cmd_proc.args(&cmd.argv).stdin(stdin);
+        let mut argv = cmd.argv.clone();
+        use regex::Regex;
+        let re = Regex::new(r"\$([A-Za-z_]\w*)").unwrap();
+
+        for arg in &mut argv {
+            if let Some(caps) = re.captures(arg) {
+                // キャプチャ位置を取得
+                if let Some(m) = caps.get(0) {
+                    let start = m.start();
+                    // 直前がバックスラッシュならスキップ
+                    if start > 0 && arg.as_bytes()[start - 1] == b'\\' {
+                        continue;
+                    }
+                    let var_name = &caps[1];
+                    if let Ok(val) = env::var(var_name) {
+                        *arg = arg.replace(&format!("${}", var_name), &val);
+                    }
+                }
+            }
+        }
+        
+        cmd_proc.args(&argv).stdin(stdin);
 
         // 4. stdout のリダイレクト／パイプ／継承
         match &cmd.stdout {
