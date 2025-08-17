@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::env;
 use std::fs::{self, File};
 use std::io::{Read, Write, stdin, stdout};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use crate::prompt::display_prompt;
@@ -50,11 +51,7 @@ impl Log {
     fn push(&mut self, value: String) {
         for line in value.split("\n") {
             if self.hash.contains(line) {
-                let i = self
-                    .log
-                    .iter()
-                    .position(|x| x == &line)
-                    .unwrap();
+                let i = self.log.iter().position(|x| x == &line).unwrap();
                 self.log.remove(i);
             } else {
                 self.hash.insert(line.to_string());
@@ -83,12 +80,7 @@ impl Log {
         self.log[self.log.len() - self.index].clone()
     }
     fn store(&self) {
-        let log_str = self
-            .log
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>()
-            .join("\n");
+        let log_str = self.log.iter().cloned().collect::<Vec<_>>().join("\n");
         fs::write(&self.log_path, log_str).unwrap();
     }
 }
@@ -150,7 +142,8 @@ impl MyShell {
                 } // Ctrl + B      (STX: Start of Text)
                 3 => {
                     let mut out = String::new();
-                    out += &self.back_to_start_point(self.buffer.len(), read_terminal_size().width.into());
+                    out += &self
+                        .back_to_start_point(self.buffer.len(), read_terminal_size().width.into());
                     out += &self.delete_after();
                     write!(stdout().lock(), "{}", out).unwrap();
                     self.buffer.clear();
@@ -172,11 +165,10 @@ impl MyShell {
                         if self.buffer.is_empty() {
                             continue;
                         }
-                        if let Some(h) = self.find_history_rev()
-                            {
-                                self.buffer = h.clone();
-                                self.cursor = self.buffer.len();
-                            }
+                        if let Some(h) = self.find_history_rev() {
+                            self.buffer = h.clone();
+                            self.cursor = self.buffer.len();
+                        }
                     } else {
                         self.cursor += 1;
                     }
@@ -188,12 +180,14 @@ impl MyShell {
                         self.cursor -= 1;
                     }
                 } // Ctrl + H      (BS: Backspace)
-                // 9   => , // Ctrl + I      (HT: Horizontal Tab)
+                9 => {
+                    self.completion_mode();
+                } // Ctrl + I      (HT: Horizontal Tab)
                 10 => {
                     if !self.buffer.contains(" ") {
                         self.expand_abbr();
                     }
-                    self.display_buffer(read_terminal_size().width.into());
+                    self.display_buffer(read_terminal_size().width.into(), false);
                     write!(stdout().lock(), "\r\n").unwrap();
                     self.execute(&self.buffer.clone());
                     self.history.push(self.buffer.clone());
@@ -256,17 +250,16 @@ impl MyShell {
                 // 127   => , // Ctrl + ?      (DEL: Delete)
                 _ => {}
             }
-            self.display_buffer(read_terminal_size().width.into());
+            self.display_buffer(read_terminal_size().width.into(), true);
             stdout().lock().flush().unwrap();
         }
     }
 
-    fn display_buffer(&self, width: usize) {
+    fn display_buffer(&self, width: usize, completion_flag: bool) {
         let origin = &self.buffer;
         let origin_len = self.buffer.len();
-        let output_str = if !self.buffer.is_empty() {
-            if let Some(h) = self.find_history_rev()
-            {
+        let output_str = if !self.buffer.is_empty() && completion_flag {
+            if let Some(h) = self.find_history_rev() {
                 h
             } else {
                 origin
@@ -276,7 +269,7 @@ impl MyShell {
         };
 
         let mut i = 0;
-        let mut out = String::new();
+        let mut out = "\x1b[G".to_string();
 
         let mut output_chars = output_str.chars();
         while let Some(c) = output_chars.next() {
@@ -314,11 +307,192 @@ impl MyShell {
         "\x1b[0J".to_string()
     }
     fn find_history_rev(&self) -> Option<&String> {
-        self
-            .history
+        self.history
             .log
             .iter()
             .rev()
             .find(|h| h.starts_with(&self.buffer))
     }
+    fn completion_mode(&mut self) {
+        let tokens = command::tokenize::tokenize(&self.buffer);
+        if tokens.is_empty() {
+            return;
+        }
+        let (mut expr, _) = command::parse::parse(&tokens, &self.aliases);
+        let mut last_cmd_expr = None;
+        loop {
+            match expr {
+                command::parse::Expr::And(_, b) => expr = *b,
+                command::parse::Expr::Or(_, b) => expr = *b,
+                command::parse::Expr::Pipe(ref a) => {
+                    last_cmd_expr = a.last().cloned();
+                    break;
+                }
+            }
+        }
+        let Some(last_cmd) = last_cmd_expr else { return };
+
+        let last_char = self.buffer.chars().last().unwrap();
+        let (dir, mut file, see_path) = if last_char == ' ' {
+            ("./".to_string(), "".to_string(), false)
+        } else if last_cmd.argv.len() == 0 {
+            let cmd = last_cmd.cmd_name;
+            if cmd.contains("/") {
+                let (dir, file) = split_dir_file(&cmd);
+                (dir, file, false)
+            } else {
+                ("".to_string(), cmd, true)
+            }
+        } else {
+            let last_arg = last_cmd.argv.last().unwrap().clone();
+            let (dir, file) = split_dir_file(&last_arg);
+            (dir, file, false)
+        };
+
+        let candidates = match (&dir, &file, see_path) {
+            (_, file, true) => ls_cmd_starts_with(&file),
+            (dir, file, false) => ls_starts_with(&dir, &file, false),
+            _ => {
+                unreachable!()
+            }
+        };
+        if candidates.len() == 0 {
+            return;
+        } else if candidates.len() == 1 {
+            let old = file;
+            let new = candidates.into_iter().next().unwrap();
+            for c in new.chars().skip(old.len()) {
+                self.buffer.push(c);
+                self.cursor += 1;
+            }
+            let path = Path::new(&dir).join(&new);
+            if see_path || is_file(&path) {
+                self.buffer.push(' ');
+                self.cursor += 1;
+            } else {
+                self.buffer.push('/');
+                self.cursor += 1;
+            }
+            return;
+        } else {
+            let common_prefix = common_prefix(&candidates);
+            let old = &file;
+            let new = common_prefix;
+            for c in new.chars().skip(old.len()) {
+                self.buffer.push(c);
+                self.cursor += 1;
+            }
+            file = new;
+        }
+        print_sorted_set(&candidates, &file);
+    }
+}
+
+fn split_dir_file(path: &str) -> (String, String) {
+    let p = Path::new(path);
+
+    if p.is_dir() {
+        // ディレクトリならそのまま返す
+        let dir = p.display().to_string();
+        return (if dir.is_empty() { "./".to_string() } else { dir }, String::new());
+    }
+
+    let dir = p
+        .parent()
+        .map(|d| {
+            let s = d.display().to_string();
+            if s.is_empty() { "./".to_string() } else { s }
+        })
+        .unwrap_or_else(|| "./".to_string());
+
+    let file = p
+        .file_name()
+        .map_or_else(String::new, |f| f.to_string_lossy().into_owned());
+
+    (dir, file)
+}
+
+fn ls_starts_with(dir: &str, prefix: &str, only_exec: bool) -> HashSet<String> {
+    let entries = ls(dir, only_exec);
+    if prefix.is_empty() {
+        entries
+    } else {
+        entries
+            .into_iter()
+            .filter(|name| name.starts_with(prefix))
+            .collect()
+    }
+}
+
+fn ls_cmd_starts_with(cmd: &str) -> HashSet<String> {
+    let mut cmds = HashSet::new();
+    if let Ok(path) = env::var("PATH") {
+        for dir in path.split(':') {
+            cmds.extend(ls_starts_with(dir, cmd, true));
+        }
+    }
+    cmds
+}
+
+fn is_file(path: &Path) -> bool {
+    fs::metadata(path).map(|m| m.is_file()).unwrap_or(false)
+}
+
+fn is_executable(path: &Path) -> bool {
+    is_file(path)
+        && fs::metadata(path)
+            .map(|m| m.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+}
+
+fn ls(dir: &str, only_exec: bool) -> HashSet<String> {
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return HashSet::new(),
+    };
+
+    entries
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| !only_exec || is_executable(&entry.path()))
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect()
+}
+
+fn print_sorted_set(set: &HashSet<String>, prefix: &str) {
+    let mut v: Vec<_> = set.iter().cloned().collect();
+    v.sort();
+
+    let mut out = "[".to_string();
+    for item in v {
+        if item.starts_with(prefix) {
+            let (matched, rest) = item.split_at(prefix.len());
+            out.push_str(&format!("\x1b[37m{}\x1b[90m{}\x1b[0m  ", matched, rest));
+        } else {
+            out.push_str(&format!("\x1b[90m{}\x1b[0m  ", item));
+        }
+    }
+    out.push_str("]\n");
+    write!(stdout().lock(), "{}", out).unwrap();
+}
+
+fn common_prefix(set: &HashSet<String>) -> String {
+    let mut iter = set.iter();
+    let first = match iter.next() {
+        Some(s) => s.clone(),
+        None => return String::new(),
+    };
+
+    let mut prefix = first;
+    for s in iter {
+        let mut i = 0;
+        let max = prefix.len().min(s.len());
+        while i < max && prefix.as_bytes()[i] == s.as_bytes()[i] {
+            i += 1;
+        }
+        prefix.truncate(i);
+        if prefix.is_empty() {
+            break;
+        }
+    }
+    prefix
 }

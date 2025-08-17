@@ -94,9 +94,8 @@ pub fn show_history(history: &[String]) {
 pub fn set_env(args: &[String]) {
     match args.len() {
         2 => {
-            unsafe { 
-                std::env::set_var(args[0].clone(), args[1].clone()) };
-            }
+            unsafe { std::env::set_var(args[0].clone(), args[1].clone()) };
+        }
         _ => {
             // 不正な引数の数
             eprintln!("Usage:");

@@ -34,10 +34,7 @@ pub(crate) fn display_prompt(width: usize) {
     let space_count = width.saturating_sub(strip_ansi(&left).len() + 8); // clock は8文字 "hh:mm:ss"
     let spaces = " ".repeat(space_count);
 
-    print!(
-        "{}{}{}{}{}\r\n\x1b[0J",
-        left, spaces, gray, clock, reset
-    );
+    print!("{}{}{}{}{}\r\n\x1b[0J", left, spaces, gray, clock, reset);
 }
 
 fn get_username() -> String {

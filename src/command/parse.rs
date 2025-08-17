@@ -9,7 +9,7 @@ pub enum Expr {
     Pipe(Vec<CommandExpr>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Redirection {
     /// パイプでつなぐ
     Pipe,
@@ -19,7 +19,7 @@ pub enum Redirection {
     File { path: String, append: bool },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CommandExpr {
     pub(crate) cmd_name: String,
     pub(crate) argv: Vec<String>,

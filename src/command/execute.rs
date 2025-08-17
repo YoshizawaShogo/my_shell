@@ -1,5 +1,7 @@
 use std::{
-    env, io::Read, process::{Command, Stdio}
+    env,
+    io::Read,
+    process::{Command, Stdio},
 };
 
 use crate::{
@@ -85,7 +87,7 @@ pub fn execute_pipeline(commands: &[CommandExpr], shell: &mut MyShell) -> i32 {
                 }
             }
         }
-        
+
         cmd_proc.args(&argv).stdin(stdin);
 
         // 4. stdout のリダイレクト／パイプ／継承
