@@ -1,8 +1,10 @@
-pub mod command;
-pub mod prompt;
+pub(crate) mod expansion;
+pub(crate) mod command;
+pub(crate) mod prompt;
 pub mod shell;
-pub mod term_mode;
-pub mod term_size;
+pub(crate) mod term_mode;
+pub(crate) mod term_size;
+pub(crate) mod completion;
 
 pub fn init() {
     term_mode::init();

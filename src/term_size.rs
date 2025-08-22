@@ -4,16 +4,16 @@ use std::mem;
 use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex, OnceLock};
 
-pub fn init() {
+pub(crate) fn init() {
     init_terminal_size();
     init_sigwinch();
 }
 
 #[repr(C)]
 #[derive(Debug, Clone)]
-pub struct TerminalSize {
-    pub height: u16,
-    pub width: u16,
+pub(crate) struct TerminalSize {
+    height: u16,
+    pub(crate) width: u16,
 }
 
 impl Default for TerminalSize {

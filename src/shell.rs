@@ -1,41 +1,43 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, VecDeque};
 use std::env;
 use std::fs::{self, File};
 use std::io::{Read, Write, stdin, stdout};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
+use crate::completion::{ls_starts_with, split_path, Executables};
+use crate::expansion::{Abbrs, Aliases, Expansion};
 use crate::prompt::display_prompt;
 use crate::term_size::read_terminal_size;
 use crate::{command, term_mode};
 
 const RC_FILE: &str = ".my_shell_rc";
-const HISTORY_FILE: &str = ".my_shell_log";
+const HISTORY_FILE: &str = ".my_shell_history";
 
 pub struct MyShell {
-    pub history: Log,
-    pub abbrs: HashMap<String, String>,
-    pub aliases: HashMap<String, String>,
-    pub buffer: String,
-    pub cursor: usize,
-    pub dir_stack: Vec<PathBuf>,
+    pub(crate) history: History,
+    pub(crate) abbrs: Abbrs,
+    pub(crate) aliases: Aliases,
+    executables: Executables,
+    buffer: String,
+    cursor: usize,
+    pub(crate) dir_stack: Vec<PathBuf>,
 }
-pub struct Log {
+pub(crate) struct History {
     log_path: String,
     capacity: usize,
-    pub log: VecDeque<String>,
-    hash: HashSet<String>,
+    pub(crate) log: VecDeque<String>,
+    hash: BTreeSet<String>,
     index: usize,
 }
 
-impl Log {
+impl History {
     fn new(capacity: usize) -> Self {
         let history_path = env::var("HOME").unwrap() + "/" + HISTORY_FILE;
         if !Path::new(&history_path).is_file() {
             File::create(&history_path).unwrap();
         }
         let mut command_log = VecDeque::new();
-        let mut hash = HashSet::new();
+        let mut hash = BTreeSet::new();
         for line in fs::read_to_string(&history_path).unwrap().split("\n") {
             hash.insert(line.to_string());
             command_log.push_back(line.to_string());
@@ -88,9 +90,10 @@ impl Log {
 impl MyShell {
     pub fn new() -> Self {
         Self {
-            history: Log::new(1000),
-            abbrs: HashMap::new(),
-            aliases: HashMap::new(),
+            history: History::new(1000),
+            abbrs: Expansion::new("abbreviations".into()),
+            aliases: Expansion::new("aliases".into()),
+            executables: Executables::new(),
             buffer: String::new(),
             cursor: 0,
             dir_stack: Vec::new(),
@@ -103,11 +106,11 @@ impl MyShell {
         }
     }
     fn execute(&mut self, input: &str) -> i32 {
-        let tokens = command::tokenize::tokenize(input);
+        let tokens = command::tokenize::Tokens::from(input);
         if tokens.is_empty() {
             return 0;
         }
-        let (expr, _) = command::parse::parse(&tokens, &self.aliases);
+        let expr = tokens.parse(&self.aliases);
         term_mode::set_origin_term();
         let r = command::execute::execute(&expr, self);
         term_mode::set_raw_term();
@@ -221,7 +224,7 @@ impl MyShell {
                     buffer.pop();
                     self.cursor -= 1;
                     while let Some(c) = buffer.chars().last() {
-                        if c.is_ascii_alphanumeric() || c == '"' || c == '\'' {
+                        if !"/ ".contains(c) {
                             buffer.pop();
                             self.cursor -= 1;
                         } else {
@@ -314,185 +317,77 @@ impl MyShell {
             .find(|h| h.starts_with(&self.buffer))
     }
     fn completion_mode(&mut self) {
-        let tokens = command::tokenize::tokenize(&self.buffer);
+        let target = &self.buffer[..self.cursor];
+        let tokens = command::tokenize::Tokens::from(target);
         if tokens.is_empty() {
             return;
         }
-        let (mut expr, _) = command::parse::parse(&tokens, &self.aliases);
-        let mut last_cmd_expr = None;
-        loop {
-            match expr {
-                command::parse::Expr::And(_, b) => expr = *b,
-                command::parse::Expr::Or(_, b) => expr = *b,
-                command::parse::Expr::Pipe(ref a) => {
-                    last_cmd_expr = a.last().cloned();
-                    break;
-                }
-            }
-        }
-        let Some(last_cmd) = last_cmd_expr else { return };
+        let expr = tokens.parse(&self.aliases);
+        let last_cmd_expr = expr.last_cmd_expr();
 
         let last_char = self.buffer.chars().last().unwrap();
-        let (dir, mut file, see_path) = if last_char == ' ' {
-            ("./".to_string(), "".to_string(), false)
-        } else if last_cmd.argv.len() == 0 {
-            let cmd = last_cmd.cmd_name;
-            if cmd.contains("/") {
-                let (dir, file) = split_dir_file(&cmd);
-                (dir, file, false)
-            } else {
-                ("".to_string(), cmd, true)
-            }
+        let args_is_empty = last_cmd_expr.argv.is_empty();
+        let last_word = if args_is_empty {
+            last_cmd_expr.cmd_name
         } else {
-            let last_arg = last_cmd.argv.last().unwrap().clone();
-            let (dir, file) = split_dir_file(&last_arg);
-            (dir, file, false)
+            last_cmd_expr.argv.last().unwrap().clone()
         };
 
-        let candidates = match (&dir, &file, see_path) {
-            (_, file, true) => ls_cmd_starts_with(&file),
-            (dir, file, false) => ls_starts_with(&dir, &file, false),
-            _ => {
-                unreachable!()
+        let (candidates, current) = match (last_char, args_is_empty, last_word.contains("/")) {
+            (' ', _, _) => (fs::read_dir(Path::new("./"))
+                .unwrap()
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect(), "".to_string()),
+            (_, true, false) => (self.executables.completion(&last_word, &self.abbrs, &self.aliases), last_word.clone()),
+            (_, true, true) => {
+                let (dir, current) = split_path(&last_word);
+                let dir = if dir.is_empty() {
+                    "./".to_string()
+                } else {
+                    dir
+                };
+                (ls_starts_with(&dir, &current, true), current)
+            }
+            (_, false, _) => {
+                let (dir, current) = split_path(&last_word);
+                let dir = if dir.is_empty() {
+                    "./".to_string()
+                } else {
+                    dir
+                };
+                (ls_starts_with(&dir, &current, false), current)
             }
         };
+
         if candidates.len() == 0 {
             return;
         } else if candidates.len() == 1 {
-            let old = file;
             let new = candidates.into_iter().next().unwrap();
-            for c in new.chars().skip(old.len()) {
+            let mut last_word = last_word.clone();
+            for c in new.chars().skip(current.len()) {
+                last_word.push(c);
                 self.buffer.push(c);
                 self.cursor += 1;
             }
-            let path = Path::new(&dir).join(&new);
-            if see_path || is_file(&path) {
-                self.buffer.push(' ');
+            if Path::new(&last_word).is_dir() {
+                self.buffer.push('/');
                 self.cursor += 1;
             } else {
-                self.buffer.push('/');
+                self.buffer.push(' ');
                 self.cursor += 1;
             }
             return;
         } else {
-            let common_prefix = common_prefix(&candidates);
-            let old = &file;
-            let new = common_prefix;
-            for c in new.chars().skip(old.len()) {
-                self.buffer.push(c);
-                self.cursor += 1;
+            let common_prefix = crate::completion::common_prefix(&candidates);
+            if let Some(new) = common_prefix {
+                for c in new.chars().skip(current.len()) {
+                    self.buffer.push(c);
+                    self.cursor += 1;
+                }
+                crate::completion::print_highlighted_set(&candidates, &new);
             }
-            file = new;
-        }
-        print_sorted_set(&candidates, &file);
-    }
-}
-
-fn split_dir_file(path: &str) -> (String, String) {
-    let p = Path::new(path);
-
-    if p.is_dir() {
-        // ディレクトリならそのまま返す
-        let dir = p.display().to_string();
-        return (if dir.is_empty() { "./".to_string() } else { dir }, String::new());
-    }
-
-    let dir = p
-        .parent()
-        .map(|d| {
-            let s = d.display().to_string();
-            if s.is_empty() { "./".to_string() } else { s }
-        })
-        .unwrap_or_else(|| "./".to_string());
-
-    let file = p
-        .file_name()
-        .map_or_else(String::new, |f| f.to_string_lossy().into_owned());
-
-    (dir, file)
-}
-
-fn ls_starts_with(dir: &str, prefix: &str, only_exec: bool) -> HashSet<String> {
-    let entries = ls(dir, only_exec);
-    if prefix.is_empty() {
-        entries
-    } else {
-        entries
-            .into_iter()
-            .filter(|name| name.starts_with(prefix))
-            .collect()
-    }
-}
-
-fn ls_cmd_starts_with(cmd: &str) -> HashSet<String> {
-    let mut cmds = HashSet::new();
-    if let Ok(path) = env::var("PATH") {
-        for dir in path.split(':') {
-            cmds.extend(ls_starts_with(dir, cmd, true));
         }
     }
-    cmds
 }
 
-fn is_file(path: &Path) -> bool {
-    fs::metadata(path).map(|m| m.is_file()).unwrap_or(false)
-}
-
-fn is_executable(path: &Path) -> bool {
-    is_file(path)
-        && fs::metadata(path)
-            .map(|m| m.permissions().mode() & 0o111 != 0)
-            .unwrap_or(false)
-}
-
-fn ls(dir: &str, only_exec: bool) -> HashSet<String> {
-    let entries = match fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return HashSet::new(),
-    };
-
-    entries
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| !only_exec || is_executable(&entry.path()))
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .collect()
-}
-
-fn print_sorted_set(set: &HashSet<String>, prefix: &str) {
-    let mut v: Vec<_> = set.iter().cloned().collect();
-    v.sort();
-
-    let mut out = "[".to_string();
-    for item in v {
-        if item.starts_with(prefix) {
-            let (matched, rest) = item.split_at(prefix.len());
-            out.push_str(&format!("\x1b[37m{}\x1b[90m{}\x1b[0m  ", matched, rest));
-        } else {
-            out.push_str(&format!("\x1b[90m{}\x1b[0m  ", item));
-        }
-    }
-    out.push_str("]\n");
-    write!(stdout().lock(), "{}", out).unwrap();
-}
-
-fn common_prefix(set: &HashSet<String>) -> String {
-    let mut iter = set.iter();
-    let first = match iter.next() {
-        Some(s) => s.clone(),
-        None => return String::new(),
-    };
-
-    let mut prefix = first;
-    for s in iter {
-        let mut i = 0;
-        let max = prefix.len().min(s.len());
-        while i < max && prefix.as_bytes()[i] == s.as_bytes()[i] {
-            i += 1;
-        }
-        prefix.truncate(i);
-        if prefix.is_empty() {
-            break;
-        }
-    }
-    prefix
-}

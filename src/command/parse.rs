@@ -1,16 +1,29 @@
-use std::collections::HashMap;
-
-use crate::command::tokenize::Token;
+use crate::{command::tokenize::Token, expansion::Aliases};
 
 #[derive(Debug)]
-pub enum Expr {
+pub(crate) enum Expr {
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),
     Pipe(Vec<CommandExpr>),
 }
 
+impl Expr {
+    pub(crate) fn last_cmd_expr(&self) -> CommandExpr {
+        let mut expr = self;
+        loop {
+            match expr {
+                Expr::And(_, b) => expr = b,
+                Expr::Or(_, b) => expr = b,
+                Expr::Pipe(a) => {
+                    return a.last().unwrap().clone();
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
-pub enum Redirection {
+pub(crate) enum Redirection {
     /// パイプでつなぐ
     Pipe,
     /// 親プロセスと同じように標準入出力を使う
@@ -20,18 +33,18 @@ pub enum Redirection {
 }
 
 #[derive(Debug, Clone)]
-pub struct CommandExpr {
+pub(crate) struct CommandExpr {
     pub(crate) cmd_name: String,
     pub(crate) argv: Vec<String>,
     pub(crate) stdout: Redirection,
     pub(crate) stderr: Redirection,
 }
 
-pub fn parse(tokens: &[Token], aliases: &HashMap<String, String>) -> (Expr, usize) {
+pub(crate) fn parse(tokens: &[Token], aliases: &Aliases) -> (Expr, usize) {
     parse_expr(tokens, 0, aliases)
 }
 
-fn parse_expr(tokens: &[Token], mut i: usize, aliases: &HashMap<String, String>) -> (Expr, usize) {
+fn parse_expr(tokens: &[Token], mut i: usize, aliases: &Aliases) -> (Expr, usize) {
     let mut lhs = parse_pipe(tokens, &mut i, aliases);
     while i < tokens.len() {
         match &tokens[i] {
@@ -51,7 +64,7 @@ fn parse_expr(tokens: &[Token], mut i: usize, aliases: &HashMap<String, String>)
     (lhs, i)
 }
 
-fn parse_pipe(tokens: &[Token], i: &mut usize, aliases: &HashMap<String, String>) -> Expr {
+fn parse_pipe(tokens: &[Token], i: &mut usize, aliases: &Aliases) -> Expr {
     let mut commands = vec![parse_command(tokens, i, aliases)];
     while *i < tokens.len() && matches!(tokens[*i], Token::Pipe) {
         *i += 1;
@@ -67,7 +80,7 @@ fn parse_pipe(tokens: &[Token], i: &mut usize, aliases: &HashMap<String, String>
 fn parse_command(
     tokens: &[Token],
     i: &mut usize,
-    aliases: &HashMap<String, String>,
+    aliases: &Aliases,
 ) -> CommandExpr {
     let mut cmd_name = match &tokens[*i] {
         Token::Word(x) => x.clone(),

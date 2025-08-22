@@ -1,8 +1,8 @@
-pub mod builtin;
-pub mod execute;
-pub mod parse;
-pub mod tokenize;
-pub mod util;
+pub(crate) mod builtin;
+pub(crate) mod execute;
+pub(crate) mod parse;
+pub(crate) mod tokenize;
+pub(crate) mod util;
 
 #[cfg(test)]
 mod tests {

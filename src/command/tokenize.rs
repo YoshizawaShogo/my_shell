@@ -1,5 +1,9 @@
+use std::mem;
+
+use crate::expansion::Aliases;
+
 #[derive(Debug, PartialEq, Clone)]
-pub enum Token {
+pub(crate) enum Token {
     Word(String),        // 通常の文字列
     LiteralWord(String), // 通常の文字列
     And,                 // &&
@@ -15,24 +19,45 @@ pub enum Token {
     PipeBoth,            // &|
 }
 
-fn tokenize_a_word(word: &str) -> Token {
-    match word {
-        "&&" => Token::And,
-        "||" => Token::Or,
-        ">" => Token::RedirectOut,
-        "&>" => Token::RedirectBoth,
-        "2>" => Token::RedirectErr,
-        ">>" => Token::RedirectAppend,
-        "&>>" => Token::RedirectBothAppend,
-        "2>>" => Token::RedirectErrAppend,
-        "|" => Token::Pipe,
-        "2|" => Token::PipeErr,
-        "&|" => Token::PipeBoth,
-        _ => Token::Word(word.to_string()),
+impl<T: AsRef<str>> From<T> for Token {
+    fn from(word: T) -> Token {
+        match word.as_ref() {
+            "&&"  => Token::And,
+            "||"  => Token::Or,
+            ">"   => Token::RedirectOut,
+            "&>"  => Token::RedirectBoth,
+            "2>"  => Token::RedirectErr,
+            ">>"  => Token::RedirectAppend,
+            "&>>" => Token::RedirectBothAppend,
+            "2>>" => Token::RedirectErrAppend,
+            "|"   => Token::Pipe,
+            "2|"  => Token::PipeErr,
+            "&|"  => Token::PipeBoth,
+            other => Token::Word(other.to_string()),
+        }
     }
 }
 
-pub fn tokenize(input: &str) -> Vec<Token> {
+pub(crate) struct Tokens {
+    inner: Vec<Token>,
+}
+
+impl<T: AsRef<str>> From<T> for Tokens {
+    fn from(value: T) -> Self {
+        Self { inner: tokenize(value.as_ref()) }
+    }
+}
+
+impl Tokens {
+    pub(crate) fn parse(self, aliases: &Aliases) -> crate::command::parse::Expr {
+        crate::command::parse::parse(&self.inner, aliases).0
+    }
+    pub(crate) fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+}
+
+pub(crate) fn tokenize(input: &str) -> Vec<Token> {
     let mut tokens = vec![];
     let mut current = String::new();
     let mut chars = input.chars().peekable();
@@ -50,7 +75,7 @@ pub fn tokenize(input: &str) -> Vec<Token> {
             '\'' if !in_double => {
                 if in_single {
                     in_single = false;
-                    tokens.push(Token::LiteralWord(current.to_string()));
+                    tokens.push(Token::LiteralWord(mem::take(&mut current)));
                     current.clear();
                 } else {
                     in_single = true;
@@ -59,16 +84,14 @@ pub fn tokenize(input: &str) -> Vec<Token> {
             '\"' if !in_single => {
                 if in_double {
                     in_double = false;
-                    tokens.push(tokenize_a_word(&current));
-                    current.clear();
+                    tokens.push(mem::take(&mut current).into());
                 } else {
                     in_double = true;
                 }
             }
             ' ' if !in_single && !in_double => {
                 if !current.is_empty() {
-                    tokens.push(tokenize_a_word(&current));
-                    current.clear();
+                    tokens.push(mem::take(&mut current).into());
                 }
             }
             _ => {
@@ -78,7 +101,7 @@ pub fn tokenize(input: &str) -> Vec<Token> {
     }
 
     if !current.is_empty() {
-        tokens.push(tokenize_a_word(&current));
+        tokens.push(current.into());
     }
     tokens
 }

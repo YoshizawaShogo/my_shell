@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 static ORIGIN_TERM: OnceLock<termios> = OnceLock::new();
 static RAW_TERM: OnceLock<termios> = OnceLock::new();
 
-pub fn init() {
+pub(crate) fn init() {
     init_origin_term();
     init_raw_term();
 }
@@ -30,12 +30,12 @@ fn set_term_mode(term: &termios) {
     }
 }
 
-pub fn set_origin_term() {
+pub(crate) fn set_origin_term() {
     let term = ORIGIN_TERM.get().expect("ORIGIN_TERM not initialized");
     set_term_mode(&term);
 }
 
-pub fn set_raw_term() {
+pub(crate) fn set_raw_term() {
     // rawモードに切り替え
     let term = RAW_TERM.get().expect("RAW_TERM not initialized");
     set_term_mode(&term);

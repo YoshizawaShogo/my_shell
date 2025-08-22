@@ -14,7 +14,7 @@ use crate::{
 
 use std::process::Child;
 
-pub fn execute(expr: &Expr, shell: &mut MyShell) -> i32 {
+pub(crate) fn execute(expr: &Expr, shell: &mut MyShell) -> i32 {
     match expr {
         Expr::And(lhs, rhs) => {
             if execute(lhs, shell) == 0 {
@@ -34,12 +34,13 @@ pub fn execute(expr: &Expr, shell: &mut MyShell) -> i32 {
     }
 }
 
-pub fn execute_pipeline(commands: &[CommandExpr], shell: &mut MyShell) -> i32 {
+fn execute_pipeline(commands: &[CommandExpr], shell: &mut MyShell) -> i32 {
     if commands.is_empty() {
         return 0;
     }
     let mut children: Vec<Child> = Vec::new();
     let mut prev_stdout: Option<std::process::ChildStdout> = None;
+    let mut tmp_dirty = false;
 
     for (i, cmd) in commands.iter().enumerate() {
         let cmd_name = &cmd.cmd_name;
@@ -55,7 +56,7 @@ pub fn execute_pipeline(commands: &[CommandExpr], shell: &mut MyShell) -> i32 {
                 let _ = out.read_to_string(&mut pipein);
             }
             let pipein = pipein.split('\n').next().unwrap_or("");
-            execute_builtin(cmd_name, &cmd.argv, pipein, shell);
+            execute_builtin(cmd_name, &cmd.argv, pipein, shell, &mut tmp_dirty);
             continue;
         }
 
@@ -187,7 +188,7 @@ pub fn execute_pipeline(commands: &[CommandExpr], shell: &mut MyShell) -> i32 {
     last_status
 }
 
-fn execute_builtin(cmd: &str, args: &[String], pipein: &str, shell: &mut MyShell) {
+fn execute_builtin(cmd: &str, args: &[String], pipein: &str, shell: &mut MyShell, is_dirty: &mut bool) {
     match cmd {
         "cd" => {
             crate::command::builtin::cd(args, pipein, &mut shell.dir_stack);
@@ -196,10 +197,10 @@ fn execute_builtin(cmd: &str, args: &[String], pipein: &str, shell: &mut MyShell
             crate::command::builtin::popd(&mut shell.dir_stack);
         }
         "abbr" => {
-            crate::command::builtin::register_abbr(args, &mut shell.abbrs);
+            crate::command::builtin::abbr(args, &mut shell.abbrs, is_dirty);
         }
         "alias" => {
-            crate::command::builtin::register_alias(args, &mut shell.aliases);
+            crate::command::builtin::alias(args, &mut shell.aliases, is_dirty);
         }
         "history" => {
             crate::command::builtin::show_history(&shell.history.log.make_contiguous());
