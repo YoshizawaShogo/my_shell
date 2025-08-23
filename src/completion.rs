@@ -1,11 +1,12 @@
 use std::{collections::BTreeSet, fs, os::unix::fs::PermissionsExt, path::Path};
-
+use std::ffi::OsString;
 use crate::{command::builtin::BUILTIN, expansion::{Abbrs, Aliases}};
 
 ///  PATH上の実行可能ファイルが変更されることは稀だと考えるので、
 /// 考慮しないこととする。
 pub(crate) struct Executables {
     executables: BTreeSet<String>,
+    pre_path: OsString,
     pub(crate) is_dirty: bool,
 }
 
@@ -13,6 +14,7 @@ impl Executables {
     pub(crate) fn new() -> Self {
         Self {
             executables: BTreeSet::new(),
+            pre_path: OsString::new(),
             is_dirty: true,
         }
     }
@@ -24,13 +26,12 @@ impl Executables {
         for &cmd in BUILTIN.iter() {
             set.insert(cmd.to_string());
         }
-        if let Some(paths) = std::env::var_os("PATH") {
-            for dir in std::env::split_paths(&paths) {
-                if let Ok(entries) = std::fs::read_dir(dir) {
-                    for entry in entries.flatten() {
-                        if let Some(name) = entry.file_name().to_str() {
-                            set.insert(name.to_string());
-                        }
+        self.pre_path = std::env::var_os("PATH").unwrap();
+        for dir in std::env::split_paths(&self.pre_path) {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        set.insert(name.to_string());
                     }
                 }
             }
@@ -38,7 +39,7 @@ impl Executables {
         self.executables = set;
     }
     pub(crate) fn completion(&mut self, name: &str, abbrs: &Abbrs, aliases: &Aliases) -> BTreeSet<String> {
-        if self.is_dirty {
+        if self.is_dirty || self.pre_path != std::env::var_os("PATH").unwrap() {
             self.update(abbrs, aliases);
             self.is_dirty = false;
         }

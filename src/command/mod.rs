@@ -129,7 +129,7 @@ mod tests {
         let input = "echo 'hello world' && ls -l | grep txt &> result.log";
         let expected = vec![
             Token::Word("echo".into()),
-            Token::Word("hello world".into()),
+            Token::LiteralWord("hello world".into()),
             Token::And,
             Token::Word("ls".into()),
             Token::Word("-l".into()),
