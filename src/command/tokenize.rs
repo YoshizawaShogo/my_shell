@@ -22,17 +22,17 @@ pub(crate) enum Token {
 impl<T: AsRef<str>> From<T> for Token {
     fn from(word: T) -> Token {
         match word.as_ref() {
-            "&&"  => Token::And,
-            "||"  => Token::Or,
-            ">"   => Token::RedirectOut,
-            "&>"  => Token::RedirectBoth,
-            "2>"  => Token::RedirectErr,
-            ">>"  => Token::RedirectAppend,
+            "&&" => Token::And,
+            "||" => Token::Or,
+            ">" => Token::RedirectOut,
+            "&>" => Token::RedirectBoth,
+            "2>" => Token::RedirectErr,
+            ">>" => Token::RedirectAppend,
             "&>>" => Token::RedirectBothAppend,
             "2>>" => Token::RedirectErrAppend,
-            "|"   => Token::Pipe,
-            "2|"  => Token::PipeErr,
-            "&|"  => Token::PipeBoth,
+            "|" => Token::Pipe,
+            "2|" => Token::PipeErr,
+            "&|" => Token::PipeBoth,
             other => Token::Word(other.to_string()),
         }
     }
@@ -44,7 +44,9 @@ pub(crate) struct Tokens {
 
 impl<T: AsRef<str>> From<T> for Tokens {
     fn from(value: T) -> Self {
-        Self { inner: tokenize(value.as_ref()) }
+        Self {
+            inner: tokenize(value.as_ref()),
+        }
     }
 }
 

@@ -1,6 +1,9 @@
-use std::{collections::BTreeSet, fs, os::unix::fs::PermissionsExt, path::Path};
+use crate::{
+    command::builtin::BUILTIN,
+    expansion::{Abbrs, Aliases},
+};
 use std::ffi::OsString;
-use crate::{command::builtin::BUILTIN, expansion::{Abbrs, Aliases}};
+use std::{collections::BTreeSet, fs, os::unix::fs::PermissionsExt, path::Path};
 
 ///  PATH上の実行可能ファイルが変更されることは稀だと考えるので、
 /// 考慮しないこととする。
@@ -38,12 +41,21 @@ impl Executables {
         }
         self.executables = set;
     }
-    pub(crate) fn completion(&mut self, name: &str, abbrs: &Abbrs, aliases: &Aliases) -> BTreeSet<String> {
+    pub(crate) fn completion(
+        &mut self,
+        name: &str,
+        abbrs: &Abbrs,
+        aliases: &Aliases,
+    ) -> BTreeSet<String> {
         if self.is_dirty || self.pre_path != std::env::var_os("PATH").unwrap() {
             self.update(abbrs, aliases);
             self.is_dirty = false;
         }
-        self.executables.iter().cloned().filter(|x| x.starts_with(&name)).collect()
+        self.executables
+            .iter()
+            .cloned()
+            .filter(|x| x.starts_with(&name))
+            .collect()
     }
 }
 

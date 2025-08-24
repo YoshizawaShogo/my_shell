@@ -77,11 +77,7 @@ fn parse_pipe(tokens: &[Token], i: &mut usize, aliases: &Aliases) -> Expr {
     }
 }
 
-fn parse_command(
-    tokens: &[Token],
-    i: &mut usize,
-    aliases: &Aliases,
-) -> CommandExpr {
+fn parse_command(tokens: &[Token], i: &mut usize, aliases: &Aliases) -> CommandExpr {
     let mut cmd_name = match &tokens[*i] {
         Token::Word(x) => x.clone(),
         Token::LiteralWord(x) => x.clone(),

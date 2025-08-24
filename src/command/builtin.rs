@@ -54,7 +54,7 @@ pub(crate) fn abbr(args: &[String], abbrs: &mut Expansion, is_dirty: &mut bool) 
     }
 }
 
-pub(crate)  fn alias(args: &[String], aliases: &mut Expansion, is_dirty: &mut bool) {
+pub(crate) fn alias(args: &[String], aliases: &mut Expansion, is_dirty: &mut bool) {
     match args.len() {
         0 => {
             aliases.display();
@@ -70,8 +70,15 @@ pub(crate)  fn alias(args: &[String], aliases: &mut Expansion, is_dirty: &mut bo
     }
 }
 
-pub(crate) fn show_history(history: &[String]) {
-    println!("{}", history.join("\n"));
+pub(crate) fn show_history(history: &[(String, String)]) {
+    println!(
+        "{}",
+        history
+            .iter()
+            .map(|(l, r)| format!("{l}: {r}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
 }
 
 pub(crate) fn set_env(args: &[String]) {

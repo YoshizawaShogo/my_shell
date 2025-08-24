@@ -12,7 +12,7 @@ impl Expansion {
     pub(crate) fn new(name: String) -> Self {
         Self {
             expansions: BTreeMap::new(),
-            name
+            name,
         }
     }
     pub(crate) fn insert(&mut self, key: String, val: String, is_dirty: &mut bool) {
@@ -32,7 +32,8 @@ impl Expansion {
         if self.expansions.is_empty() {
             println!("No {} registered.", self.name);
         } else {
-            let output = self.expansions
+            let output = self
+                .expansions
                 .iter()
                 .map(|(abbr, full)| format!("{} => {}", abbr, full))
                 .collect::<Vec<_>>()

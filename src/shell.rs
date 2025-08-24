@@ -1,17 +1,16 @@
-use std::collections::{BTreeSet, VecDeque};
 use std::env;
 use std::fs::{self, File};
 use std::io::{Read, Write, stdin, stdout};
 use std::path::{Path, PathBuf};
 
-use crate::completion::{ls_starts_with, split_path, Executables};
+use crate::completion::{Executables, ls_starts_with, split_path};
 use crate::expansion::{Abbrs, Aliases, Expansion};
+use crate::history::History;
 use crate::prompt::display_prompt;
 use crate::term_size::read_terminal_size;
 use crate::{command, term_mode};
 
 const RC_FILE: &str = ".my_shell_rc";
-const HISTORY_FILE: &str = ".my_shell_history";
 
 pub struct MyShell {
     pub(crate) history: History,
@@ -21,70 +20,6 @@ pub struct MyShell {
     buffer: String,
     cursor: usize,
     pub(crate) dir_stack: Vec<PathBuf>,
-}
-pub(crate) struct History {
-    log_path: String,
-    capacity: usize,
-    pub(crate) log: VecDeque<String>,
-    hash: BTreeSet<String>,
-    index: usize,
-}
-
-impl History {
-    fn new(capacity: usize) -> Self {
-        let history_path = env::var("HOME").unwrap() + "/" + HISTORY_FILE;
-        if !Path::new(&history_path).is_file() {
-            File::create(&history_path).unwrap();
-        }
-        let mut command_log = VecDeque::new();
-        let mut hash = BTreeSet::new();
-        for line in fs::read_to_string(&history_path).unwrap().split("\n") {
-            hash.insert(line.to_string());
-            command_log.push_back(line.to_string());
-        }
-        Self {
-            log_path: history_path,
-            capacity,
-            log: command_log,
-            hash,
-            index: 0,
-        }
-    }
-    fn push(&mut self, value: String) {
-        for line in value.split("\n") {
-            if self.hash.contains(line) {
-                let i = self.log.iter().position(|x| x == &line).unwrap();
-                self.log.remove(i);
-            } else {
-                self.hash.insert(line.to_string());
-            }
-            self.log.push_back(line.to_string());
-        }
-        while self.log.len() > self.capacity {
-            let poped = self.log.pop_front().unwrap();
-            self.hash.remove(&poped);
-        }
-        self.index = 0;
-    }
-    fn prev(&mut self) -> String {
-        if self.log.len() - 1 > self.index {
-            self.index += 1;
-        }
-        self.log[self.log.len() - self.index].clone()
-    }
-    fn next(&mut self) -> String {
-        if 1 < self.index {
-            self.index -= 1;
-        }
-        if self.index == 0 {
-            self.index = 1;
-        }
-        self.log[self.log.len() - self.index].clone()
-    }
-    fn store(&self) {
-        let log_str = self.log.iter().cloned().collect::<Vec<_>>().join("\n");
-        fs::write(&self.log_path, log_str).unwrap();
-    }
 }
 
 impl MyShell {
@@ -168,7 +103,7 @@ impl MyShell {
                         if self.buffer.is_empty() {
                             continue;
                         }
-                        if let Some(h) = self.find_history_rev() {
+                        if let Some(h) = self.history.find_history_rev(&self.buffer) {
                             self.buffer = h.clone();
                             self.cursor = self.buffer.len();
                         }
@@ -262,7 +197,7 @@ impl MyShell {
         let origin = &self.buffer;
         let origin_len = self.buffer.len();
         let output_str = if !self.buffer.is_empty() && completion_flag {
-            if let Some(h) = self.find_history_rev() {
+            if let Some(h) = self.history.find_history_rev(&self.buffer) {
                 h
             } else {
                 origin
@@ -309,13 +244,7 @@ impl MyShell {
     fn delete_after(&self) -> String {
         "\x1b[0J".to_string()
     }
-    fn find_history_rev(&self) -> Option<&String> {
-        self.history
-            .log
-            .iter()
-            .rev()
-            .find(|h| h.starts_with(&self.buffer))
-    }
+
     fn completion_mode(&mut self) {
         let target = &self.buffer[..self.cursor];
         let tokens = command::tokenize::Tokens::from(target);
@@ -334,12 +263,19 @@ impl MyShell {
         };
 
         let (candidates, current) = match (last_char, args_is_empty, last_word.contains("/")) {
-            (' ', _, _) => (fs::read_dir(Path::new("./"))
-                .unwrap()
-                .filter_map(|entry| entry.ok())
-                .map(|entry| entry.file_name().to_string_lossy().into_owned())
-                .collect(), "".to_string()),
-            (_, true, false) => (self.executables.completion(&last_word, &self.abbrs, &self.aliases), last_word.clone()),
+            (' ', _, _) => (
+                fs::read_dir(Path::new("./"))
+                    .unwrap()
+                    .filter_map(|entry| entry.ok())
+                    .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                    .collect(),
+                "".to_string(),
+            ),
+            (_, true, false) => (
+                self.executables
+                    .completion(&last_word, &self.abbrs, &self.aliases),
+                last_word.clone(),
+            ),
             (_, true, true) => {
                 let (dir, current) = split_path(&last_word);
                 let dir = if dir.is_empty() {
@@ -390,4 +326,3 @@ impl MyShell {
         }
     }
 }
-
