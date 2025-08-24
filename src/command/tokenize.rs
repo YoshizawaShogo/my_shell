@@ -70,7 +70,7 @@ pub(crate) fn tokenize(input: &str) -> Vec<Token> {
         match ch {
             '\\' => {
                 if let Some(next_ch) = chars.next() {
-                    current.push('\\');
+                    // current.push('\\');
                     current.push(next_ch);
                 }
             }

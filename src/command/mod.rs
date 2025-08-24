@@ -21,7 +21,7 @@ mod tests {
     fn test_quoted_words() {
         assert_eq!(
             tokenize("\"\\\"a'a\\\"\""),
-            vec![Token::Word("\\\"a'a\\\"".into())]
+            vec![Token::Word("\"a'a\"".into())]
         );
         assert_eq!(tokenize("\"a'a\""), vec![Token::Word("a'a".into())]);
     }
