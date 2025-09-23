@@ -1,6 +1,5 @@
 use std::{
     env,
-    io::Read,
     process::{Command, Stdio},
 };
 
@@ -48,15 +47,11 @@ fn execute_pipeline(commands: &[CommandExpr], shell: &mut MyShell) -> i32 {
         // 1. BUILTIN の実行
         if BUILTIN.contains(&cmd_name.as_str()) {
             if let Some(prev_child) = children.last_mut() {
-                let _ = prev_child.wait(); // 結果は無視
+                if prev_child.wait().is_err() {
+                    return 1;
+                };
             }
-            // パイプ入力を文字列化
-            let mut pipein = String::new();
-            if let Some(mut out) = prev_stdout.take() {
-                let _ = out.read_to_string(&mut pipein);
-            }
-            let pipein = pipein.split('\n').next().unwrap_or("");
-            execute_builtin(cmd_name, &cmd.argv, pipein, shell, &mut tmp_dirty);
+            execute_builtin(cmd_name, &cmd.argv, shell, &mut tmp_dirty);
             continue;
         }
 
@@ -188,16 +183,10 @@ fn execute_pipeline(commands: &[CommandExpr], shell: &mut MyShell) -> i32 {
     last_status
 }
 
-fn execute_builtin(
-    cmd: &str,
-    args: &[String],
-    pipein: &str,
-    shell: &mut MyShell,
-    is_dirty: &mut bool,
-) {
+fn execute_builtin(cmd: &str, args: &[String], shell: &mut MyShell, is_dirty: &mut bool) {
     match cmd {
         "cd" => {
-            crate::command::builtin::cd(args, pipein, &mut shell.dir_stack);
+            crate::command::builtin::cd(args, &mut shell.dir_stack);
         }
         "popd" => {
             crate::command::builtin::popd(&mut shell.dir_stack);

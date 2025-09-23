@@ -5,24 +5,18 @@ use std::path::{Path, PathBuf};
 
 use crate::expansion::Expansion;
 
-pub(crate) fn cd(args: &[String], pipein: &str, cd_history: &mut Vec<PathBuf>) {
-    let dir = match (!pipein.is_empty(), args.iter().as_slice()) {
-        (true, []) => pipein.to_string(), // pipeinに入力があって、argsが空
-        (false, [d]) => d.to_string(),    // pipein空文字かつargsに1要素
-        (false, []) => env::var("HOME").unwrap(),
+pub(crate) fn cd(args: &[String], cd_history: &mut Vec<PathBuf>) {
+    let dir = match args.iter().as_slice() {
+        [d] => d.to_string(),
+        [] => env::var("HOME").unwrap(),
         _ => return, // それ以外はエラー扱い
     };
-    let current_dir = match env::current_dir() {
-        Ok(path) => path,
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            return;
-        }
-    };
+    let current_dir = env::current_dir().ok();
     let path = Path::new(&dir);
-    match env::set_current_dir(&path) {
-        Ok(()) => cd_history.push(current_dir),
-        Err(e) => eprintln!("cd: '{}': {}", dir, e),
+    match (env::set_current_dir(&path), current_dir) {
+        (Ok(()), Some(x)) => cd_history.push(x),
+        (Ok(()), None) => (),
+        (Err(e), _) => eprintln!("cd: '{}': {}", dir, e),
     }
 }
 
