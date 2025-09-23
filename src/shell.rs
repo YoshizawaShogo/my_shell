@@ -40,7 +40,7 @@ impl MyShell {
             self.buffer = expanded.clone();
         }
     }
-    fn execute(&mut self, input: &str) -> i32 {
+    pub(crate) fn execute(&mut self, input: &str) -> i32 {
         let tokens = command::tokenize::Tokens::from(input);
         if tokens.is_empty() {
             return 0;
@@ -51,14 +51,17 @@ impl MyShell {
         term_mode::set_raw_term();
         r
     }
+    pub(crate) fn source(&mut self, path: &str) {
+        for line in fs::read_to_string(&path).unwrap().split("\n") {
+            self.execute(line);
+        }
+    }
     pub fn command_mode(&mut self) {
         let rc_path = env::var("HOME").unwrap() + "/" + RC_FILE;
         if !Path::new(&rc_path).is_file() {
             File::create(&rc_path).unwrap();
         }
-        for line in fs::read_to_string(&rc_path).unwrap().split("\n") {
-            self.execute(line);
-        }
+        self.source(&rc_path);
         term_mode::set_raw_term();
         display_prompt(read_terminal_size().width.into());
 

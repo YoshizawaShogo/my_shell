@@ -206,6 +206,9 @@ fn execute_builtin(cmd: &str, args: &[String], shell: &mut MyShell, is_dirty: &m
         "env" => {
             crate::command::builtin::show_env();
         }
+        "source" => {
+            crate::command::builtin::source(args, shell);
+        }
         _ => unreachable!(),
     }
 }

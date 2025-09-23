@@ -1,9 +1,10 @@
-pub(crate) static BUILTIN: &[&str] = &["cd", "popd", "abbr", "alias", "history", "setenv", "env"];
+pub(crate) static BUILTIN: &[&str] = &["cd", "popd", "abbr", "alias", "history", "setenv", "env", "source"];
 
 use std::env;
 use std::path::{Path, PathBuf};
 
 use crate::expansion::Expansion;
+use crate::shell::MyShell;
 
 pub(crate) fn cd(args: &[String], cd_history: &mut Vec<PathBuf>) {
     let dir = match args.iter().as_slice() {
@@ -92,4 +93,17 @@ pub(crate) fn show_env() {
     for (key, value) in std::env::vars() {
         println!("{}={}", key, value);
     }
+}
+
+pub(crate) fn source(args: &[String], shell: &mut MyShell) {
+    let path = match args.len() {
+        1 => args[0].clone(),
+        _ => {
+            // 不正な引数の数
+            eprintln!("Usage:");
+            eprintln!("  setenv <variable> <value>   # set env");
+            return;
+        }
+    };
+    shell.source(&path);
 }
