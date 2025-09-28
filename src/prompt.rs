@@ -1,10 +1,11 @@
-use regex::Regex;
+use crate::error::Result;
 use std::env;
 use std::fs;
+use std::io::{Write, stdout};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub(crate) fn display_prompt(width: usize) {
+pub(crate) fn display_prompt(width: usize) -> Result<()> {
     // ANSI Colors
     // let blue = "\x1b[34m";
     let cyan = "\x1b[36m";
@@ -34,7 +35,16 @@ pub(crate) fn display_prompt(width: usize) {
     let space_count = width.saturating_sub(strip_ansi(&left).len() + 8); // clock は8文字 "hh:mm:ss"
     let spaces = " ".repeat(space_count);
 
-    print!("{}{}{}{}{}\r\n\x1b[0J", left, spaces, gray, clock, reset);
+    write!(
+        stdout().lock(),
+        "{}{}{}{}{}\r\n",
+        left,
+        spaces,
+        gray,
+        clock,
+        reset
+    )?;
+    Ok(())
 }
 
 fn get_username() -> String {
@@ -88,6 +98,7 @@ fn get_current_time_string() -> String {
 
 // ANSIコードを除去して文字数を数えるための関数
 fn strip_ansi(s: &str) -> String {
+    use regex::Regex;
     let re = Regex::new(r"\x1b\[[0-9;]*m").unwrap();
     re.replace_all(s, "").to_string()
 }

@@ -1,4 +1,6 @@
-pub(crate) static BUILTIN: &[&str] = &["cd", "popd", "abbr", "alias", "history", "setenv", "env", "source"];
+pub(crate) static BUILTIN: &[&str] = &[
+    "cd", "popd", "abbr", "alias", "history", "setenv", "env", "source",
+];
 
 use std::env;
 use std::path::{Path, PathBuf};

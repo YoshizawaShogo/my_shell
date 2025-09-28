@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 libc = "0.2.171"
-regex = "1.11.1"
+regex = "1.11.3"

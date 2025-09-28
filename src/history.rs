@@ -41,8 +41,7 @@ impl History {
             index: 0,
         }
     }
-    pub(crate) fn push(&mut self, cmd: String) {
-        let pwd = env::current_dir().unwrap().to_string_lossy().into_owned();
+    pub(crate) fn push(&mut self, pwd: String, cmd: String) {
         let value = (pwd, cmd);
         if self.hash.contains(&value) {
             let i = self.log.iter().position(|x| x == &value).unwrap();
@@ -64,7 +63,7 @@ impl History {
         self.log[self.log.len() - self.index].clone().1
     }
     pub(crate) fn next(&mut self) -> String {
-        if 1 < self.index {
+        if 0 < self.index {
             self.index -= 1;
         }
         if self.index == 0 {

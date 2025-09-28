@@ -1,16 +1,16 @@
-use std::env;
-use std::fs::{self, File};
-use std::io::{Read, Write, stdin, stdout};
 use std::path::{Path, PathBuf};
+use std::{env, fs};
 
+use crate::command;
 use crate::completion::{Executables, ls_starts_with, split_path};
+use crate::error::Result;
 use crate::expansion::{Abbrs, Aliases, Expansion};
 use crate::history::History;
+use crate::key::{Key, Modifier, wait_keys};
+use crate::out_session::{color::Color, OutSession};
 use crate::prompt::display_prompt;
-use crate::term_size::read_terminal_size;
-use crate::{command, term_mode};
-
-const RC_FILE: &str = ".my_shell_rc";
+use crate::out_session::term_size::read_terminal_size;
+use crate::out_session::term_mode;
 
 pub struct MyShell {
     pub(crate) history: History,
@@ -18,6 +18,7 @@ pub struct MyShell {
     pub(crate) aliases: Aliases,
     executables: Executables,
     buffer: String,
+    clear_buffer_flag: bool,
     cursor: usize,
     pub(crate) dir_stack: Vec<PathBuf>,
 }
@@ -30,6 +31,7 @@ impl MyShell {
             aliases: Expansion::new("aliases".into()),
             executables: Executables::new(),
             buffer: String::new(),
+            clear_buffer_flag: true,
             cursor: 0,
             dir_stack: Vec::new(),
         }
@@ -56,196 +58,208 @@ impl MyShell {
             self.execute(line);
         }
     }
-    pub fn command_mode(&mut self) {
-        let rc_path = env::var("HOME").unwrap() + "/" + RC_FILE;
-        if !Path::new(&rc_path).is_file() {
-            File::create(&rc_path).unwrap();
+    pub fn command_mode(&mut self) -> Result<()> {
+        let rc_path = env::var("MY_SHELL_RC")
+            .unwrap_or_else(|_| env::var("HOME").expect("HOME not set") + "/" + ".my_shell_rc");
+        if Path::new(&rc_path).is_file() {
+            self.source(&rc_path);
         }
-        self.source(&rc_path);
         term_mode::set_raw_term();
-        display_prompt(read_terminal_size().width.into());
-
-        while let Some(b) = stdin().lock().by_ref().bytes().next() {
-            let b = b.unwrap();
-            let mut out = String::new();
-            out += &self.back_to_start_point(self.buffer.len(), read_terminal_size().width.into());
-            out += &self.delete_after();
-            write!(stdout().lock(), "{}", out).unwrap();
-            match b {
-                // 0   => , // Ctrl + @      (NUL: Null)
-                1 => {
-                    self.cursor = 0;
-                } // Ctrl + A      (SOH: Start of Heading)
-                2 => {
-                    if self.cursor > 0 {
-                        self.cursor -= 1;
-                    }
-                } // Ctrl + B      (STX: Start of Text)
-                3 => {
-                    let mut out = String::new();
-                    out += &self
-                        .back_to_start_point(self.buffer.len(), read_terminal_size().width.into());
-                    out += &self.delete_after();
-                    write!(stdout().lock(), "{}", out).unwrap();
-                    self.buffer.clear();
-                    self.cursor = 0;
-                } // Ctrl + C      (ETX: End of Text / Interrupt)
-                4 => {
-                    if self.buffer.is_empty() {
-                        self.history.store();
-                        return;
-                    } else if self.cursor != self.buffer.len() {
-                        self.buffer.remove(self.cursor);
-                    }
-                } // Ctrl + D      (EOT: End of Transmission / EOF)
-                5 => {
-                    self.cursor = self.buffer.len();
-                } // Ctrl + E      (ENQ: Enquiry)
-                6 => {
-                    if self.cursor == self.buffer.len() {
+        display_prompt(read_terminal_size().width.into())?;
+        OutSession::new_stdout().clear_after()?;
+        loop {
+            if self.clear_buffer_flag {
+                let mut out = OutSession::new_stdout();
+                out.back_to_start_point(self.buffer.len(), read_terminal_size().width.into())?;
+                out.clear_after()?;
+            }
+            self.display_buffer(read_terminal_size().width.into(), true)?;
+            let keys = wait_keys(10).unwrap();
+            for key in keys {
+                match key {
+                    // Ctrl + d
+                    Key::Char('d', Modifier { ctrl: true, .. }) => {
                         if self.buffer.is_empty() {
-                            continue;
+                            self.history.store();
+                            return Ok(());
+                        } else if self.cursor != self.buffer.len() {
+                            self.buffer.remove(self.cursor);
                         }
-                        if let Some(h) = self.history.find_history_rev(&self.buffer) {
-                            self.buffer = h.clone();
-                            self.cursor = self.buffer.len();
-                        }
-                    } else {
-                        self.cursor += 1;
                     }
-                } // Ctrl + F      (ACK: Acknowledge)
-                // 7   => , // Ctrl + G      (BEL: Bell / Beep)
-                8 => {
-                    if !self.buffer.is_empty() && self.cursor != 0 {
-                        self.buffer.remove(self.cursor - 1);
-                        self.cursor -= 1;
+                    // Ctrl + A : 行頭へ
+                    Key::Char('a', Modifier { ctrl: true, .. }) | Key::Home(_) => {
+                        self.cursor = 0;
                     }
-                } // Ctrl + H      (BS: Backspace)
-                9 => {
-                    self.completion_mode();
-                } // Ctrl + I      (HT: Horizontal Tab)
-                10 => {
-                    if !self.buffer.contains(" ") {
-                        self.expand_abbr();
-                    }
-                    self.display_buffer(read_terminal_size().width.into(), false);
-                    write!(stdout().lock(), "\r\n").unwrap();
-                    self.execute(&self.buffer.clone());
-                    self.history.push(self.buffer.clone());
-                    self.buffer.clear();
-                    self.cursor = 0;
-                    display_prompt(read_terminal_size().width.into());
-                } // Ctrl + J      (LF: Line Feed / Newline)
-                // 11   => , // Ctrl + K      (VT: Vertical Tab)
-                // 12   => , // Ctrl + L      (FF: Form Feed / Clear screen)
-                13 => {} // Ctrl + M      (CR: Carriage Return)
-                14 => {
-                    self.buffer = self.history.next();
-                    self.cursor = self.buffer.len();
-                } // Ctrl + N      (SO: Shift Out)
-                // 15   => , // Ctrl + O      (SI: Shift In)
-                16 => {
-                    self.buffer = self.history.prev();
-                    self.cursor = self.buffer.len();
-                } // Ctrl + P      (DLE: Data Link Escape)
-                // 17   => , // Ctrl + Q      (DC1: XON / Resume transmission)
-                // 18   => , // Ctrl + R      (DC2)
-                // 19   => , // Ctrl + S      (DC3: XOFF / Pause transmission)
-                // 20   => , // Ctrl + T      (DC4)
-                // 21   => , // Ctrl + U      (NAK: Negative Acknowledge)
-                // 22   => , // Ctrl + V      (SYN: Synchronous Idle)
-                23 => {
-                    if self.buffer.is_empty() {
-                        continue;
-                    }
-                    let mut buffer = self.buffer.clone();
-                    buffer.pop();
-                    self.cursor -= 1;
-                    while let Some(c) = buffer.chars().last() {
-                        if !"/ ".contains(c) {
-                            buffer.pop();
+                    // Ctrl + B : ←
+                    Key::Char('b', Modifier { ctrl: true, .. }) | Key::ArrowLeft(_) => {
+                        if self.cursor > 0 {
                             self.cursor -= 1;
-                        } else {
-                            break;
                         }
                     }
-                    self.buffer = buffer;
-                } // Ctrl + W      (ETB: End of Transmission Block)
-                // 24   => , // Ctrl + X      (CAN: Cancel)
-                // 25   => , // Ctrl + Y      (EM: End of Medium)
-                // 26   => , // Ctrl + Z      (SUB: Substitute / EOF on Windows)
-                // 27   => , // Ctrl + [      (ESC: Escape)
-                // 28   => , // Ctrl + \      (FS: File Separator)
-                // 29   => , // Ctrl + ]      (GS: Group Separator)
-                // 30   => , // Ctrl + ^      (RS: Record Separator)
-                // 31   => , // Ctrl + _      (US: Unit Separator)
-                32..=126 => {
-                    if b == 32 {
-                        if !self.buffer.contains(" ") {
+                    // Ctrl + C : 入力行クリア
+                    Key::Char('c', Modifier { ctrl: true, .. }) => {
+                        self.buffer.clear();
+                        self.cursor = 0;
+                    }
+                    // Ctrl + E : 行末へ
+                    Key::Char('e', Modifier { ctrl: true, .. }) | Key::End(_) => {
+                        self.cursor = self.buffer.len();
+                    }
+                    // Ctrl + F : →（ただし行末なら履歴リバース検索）
+                    Key::Char('f', Modifier { ctrl: true, .. }) | Key::ArrowRight(_) => {
+                        if self.cursor == self.buffer.len() {
+                            if self.buffer.is_empty() {
+                                // 何もしない
+                            } else if let Some(h) = self.history.find_history_rev(&self.buffer) {
+                                self.buffer = h.clone();
+                                self.cursor = self.buffer.len();
+                            }
+                        } else {
+                            self.cursor += 1;
+                        }
+                    }
+                    // Backspace / Ctrl + H
+                    Key::Backspace(_)
+                    | Key::Char('\x08', Modifier { .. })
+                    | Key::Char('h', Modifier { ctrl: true, .. }) => {
+                        if !self.buffer.is_empty() && self.cursor != 0 {
+                            self.buffer.remove(self.cursor - 1);
+                            self.cursor -= 1;
+                        }
+                    }
+                    // Tab / Ctrl + I
+                    Key::Tab(_) | Key::Char('i', Modifier { ctrl: true, .. }) => {
+                        self.completion_mode();
+                    }
+                    // Enter / Ctrl + J
+                    Key::Enter(_) | Key::Char('j', Modifier { ctrl: true, .. }) => {
+                        if !self.buffer.contains(' ') {
+                            let old = self.buffer.to_string();
+                            self.expand_abbr();
+                            let new = self.buffer.to_string();
+                            if old != new {
+                                let mut out = OutSession::new_stdout();
+                                out.back_to_start_point(
+                                    self.buffer.len(),
+                                    read_terminal_size().width.into(),
+                                )?;
+                                out.clear_after()?;
+                                self.display_buffer(read_terminal_size().width.into(), false)?;
+                            }
+                        }
+                        OutSession::new_stdout().newline()?;
+                        let pwd = env::current_dir().unwrap().to_string_lossy().into_owned();
+                        self.execute(&self.buffer.clone());
+                        self.history.push(pwd, self.buffer.clone());
+                        self.buffer.clear();
+                        self.cursor = 0;
+                        display_prompt(read_terminal_size().width.into())?;
+                    }
+                    Key::Char('l', Modifier { ctrl: true, .. }) => {
+                        OutSession::new_stdout().clear_all()?;
+                        display_prompt(read_terminal_size().width.into())?;
+                        self.display_buffer(read_terminal_size().width.into(), true)?;
+                    }
+                    // Ctrl + N : 次の履歴
+                    Key::Char('n', Modifier { ctrl: true, .. }) | Key::ArrowDown(_) => {
+                        self.buffer = self.history.next();
+                        self.cursor = self.buffer.len();
+                    }
+                    // Ctrl + P : 前の履歴
+                    Key::Char('p', Modifier { ctrl: true, .. }) | Key::ArrowUp(_) => {
+                        self.buffer = self.history.prev();
+                        self.cursor = self.buffer.len();
+                    }
+                    // Ctrl + W : 単語削除（直前の / or スペースまで）
+                    Key::Char('w', Modifier { ctrl: true, .. }) => {
+                        if self.buffer.is_empty() || self.cursor == 0 {
+                            // 何もしない
+                        } else {
+                            // カーソル直前の1文字を落としてから、区切りまで戻す
+                            let mut buf = self.buffer.clone();
+                            // まず1文字削除（カーソル直前）
+                            buf.remove(self.cursor - 1);
+                            self.cursor -= 1;
+
+                            while self.cursor > 0 {
+                                let c = buf.chars().nth(self.cursor - 1).unwrap();
+                                if !"/ ".contains(c) {
+                                    // さらに1文字削除して左へ
+                                    // chars().nth() は O(n) なので、本来は byte/idx で持つとよい
+                                    buf.remove(self.cursor - 1);
+                                    self.cursor -= 1;
+                                } else {
+                                    break;
+                                }
+                            }
+                            self.buffer = buf;
+                        }
+                    }
+                    // スペース（初回スペース前に略語展開）
+                    Key::Char(
+                        ' ',
+                        Modifier {
+                            ctrl: false,
+                            alt: false,
+                            ..
+                        },
+                    ) => {
+                        if !self.buffer.contains(' ') {
                             self.expand_abbr();
                         }
+                        self.buffer.insert(self.cursor, ' ');
+                        self.cursor += 1;
                     }
-                    self.buffer.insert(self.cursor, b as char);
-                    self.cursor += 1;
+                    // 可視 ASCII の通常文字挿入
+                    Key::Char(ch, Modifier { ctrl: false, .. }) if ch.is_ascii_graphic() => {
+                        self.buffer.insert(self.cursor, ch);
+                        self.cursor += 1;
+                    }
+                    // それ以外は無視
+                    _ => {}
                 }
-                // 127   => , // Ctrl + ?      (DEL: Delete)
-                _ => {}
             }
-            self.display_buffer(read_terminal_size().width.into(), true);
-            stdout().lock().flush().unwrap();
         }
     }
 
-    fn display_buffer(&self, width: usize, completion_flag: bool) {
+    fn display_buffer(&self, width: usize, completion_flag: bool) -> Result<()> {
         let origin = &self.buffer;
+        if origin.len() == 0 {
+            return Ok(());
+        }
         let origin_len = self.buffer.len();
         let output_str = if !self.buffer.is_empty() && completion_flag {
-            if let Some(h) = self.history.find_history_rev(&self.buffer) {
-                h
-            } else {
-                origin
-            }
+            self.history
+                .find_history_rev(&self.buffer)
+                .unwrap_or(origin)
         } else {
             origin
         };
 
         let mut i = 0;
-        let mut out = "\x1b[G".to_string();
-
-        let mut output_chars = output_str.chars();
-        while let Some(c) = output_chars.next() {
+        let mut out = OutSession::new_stdout();
+        let mut chars = output_str.chars();
+        while let Some(c) = chars.next() {
             if i == origin_len {
-                out.push_str("\x1b[90m"); // 明るい黒=薄い灰色
+                out.set_color(Color::BrightBlack)?;
             }
             if i == width {
-                out.push_str("\r\n");
+                out.newline()?;
             }
-            out.push(c);
+            out.write_char(c)?;
             i += 1;
         }
-        if i != 0 && i % width == 0 {
-            out.push_str("\r\n");
-        }
-        out.push_str("\x1b[0m"); // 色リセット
+        out.set_color(Color::Reset)?;
 
         // 3) カーソル移動
-        out += &self.back_to_start_point(output_str.len(), width);
+        out.back_to_start_point(output_str.len(), width)?;
         let mut cursor = self.cursor.clone();
         while cursor >= width {
-            out += "\x1b[1B";
+            out.cursor_up(1)?;
             cursor -= width;
         }
-        out += &"\x1b[1C".repeat(cursor);
-
-        write!(stdout().lock(), "{}", out).unwrap();
-    }
-
-    fn back_to_start_point(&self, buffer_len: usize, width: usize) -> String {
-        let row = buffer_len / width;
-        "\x1b[1A".repeat(row).to_string() + "\x1b[G"
-    }
-    fn delete_after(&self) -> String {
-        "\x1b[0J".to_string()
+        out.cursor_right(cursor as u32)?;
+        Ok(())
     }
 
     fn completion_mode(&mut self) {
