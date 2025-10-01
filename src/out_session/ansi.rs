@@ -1,12 +1,12 @@
 use std::io::{self, BufWriter, Write};
 
 use crate::error::Result;
-use crate::out_session::{color::Color, OutSession};
+use crate::out_session::{OutSession, color::Color};
 
 #[allow(unused)]
 impl<'a> OutSession<'a> {
     #[inline]
-    pub fn new_stdout() -> Self {
+    pub fn lock() -> Self {
         OutSession {
             buf: BufWriter::new(io::stdout().lock()),
         }

@@ -67,9 +67,10 @@ impl History {
             self.index -= 1;
         }
         if self.index == 0 {
-            self.index = 1;
+            "".to_string()
+        } else {
+            self.log[self.log.len() - self.index].clone().1
         }
-        self.log[self.log.len() - self.index].clone().1
     }
     pub(crate) fn store(&self) {
         let log_str = self

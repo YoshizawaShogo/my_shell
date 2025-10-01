@@ -5,7 +5,6 @@ pub(crate) mod expansion;
 pub(crate) mod history;
 pub(crate) mod key;
 pub(crate) mod out_session;
-pub(crate) mod prompt;
 pub mod shell;
 
 pub fn init() {

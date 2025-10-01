@@ -35,7 +35,7 @@ pub(crate) enum Redirection {
 #[derive(Debug, Clone)]
 pub(crate) struct CommandExpr {
     pub(crate) cmd_name: String,
-    pub(crate) argv: Vec<String>,
+    pub(crate) args: Vec<String>,
     pub(crate) stdout: Redirection,
     pub(crate) stderr: Redirection,
 }
@@ -168,7 +168,7 @@ fn parse_command(tokens: &[Token], i: &mut usize, aliases: &Aliases) -> CommandE
     }
     CommandExpr {
         cmd_name,
-        argv,
+        args: argv,
         stdout,
         stderr,
     }

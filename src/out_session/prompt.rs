@@ -1,11 +1,20 @@
 use crate::error::Result;
+use crate::out_session::OutSession;
+use crate::out_session::term_size::read_terminal_size;
 use std::env;
 use std::fs;
 use std::io::{Write, stdout};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub(crate) fn display_prompt(width: usize) -> Result<()> {
+impl<'a> OutSession<'a> {
+    #[inline]
+    pub fn display_prompt(&self) -> Result<()> {
+        display_prompt()
+    }
+}
+
+pub fn display_prompt() -> Result<()> {
     // ANSI Colors
     // let blue = "\x1b[34m";
     let cyan = "\x1b[36m";
@@ -32,6 +41,7 @@ pub(crate) fn display_prompt(width: usize) -> Result<()> {
         cyan, user, host, reset, yellow, cwd, reset, git_info, reset,
     );
 
+    let width: usize = read_terminal_size().width.into();
     let space_count = width.saturating_sub(strip_ansi(&left).len() + 8); // clock は8文字 "hh:mm:ss"
     let spaces = " ".repeat(space_count);
 

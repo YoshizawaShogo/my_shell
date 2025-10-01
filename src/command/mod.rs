@@ -2,6 +2,7 @@ pub(crate) mod builtin;
 pub(crate) mod execute;
 pub(crate) mod parse;
 pub(crate) mod tokenize;
+pub(crate) mod util;
 
 #[cfg(test)]
 mod tests {

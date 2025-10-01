@@ -51,7 +51,7 @@ fn execute_pipeline(commands: &[CommandExpr], shell: &mut MyShell) -> i32 {
                     return 1;
                 };
             }
-            execute_builtin(cmd_name, &cmd.argv, shell, &mut tmp_dirty);
+            execute_builtin(cmd_name, &cmd.args, shell, &mut tmp_dirty);
             continue;
         }
 
@@ -63,7 +63,7 @@ fn execute_pipeline(commands: &[CommandExpr], shell: &mut MyShell) -> i32 {
 
         // 3. Command の組み立て
         let mut cmd_proc = Command::new(&cmd_name);
-        let mut argv = cmd.argv.clone();
+        let mut argv = cmd.args.clone();
         use regex::Regex;
         let re = Regex::new(r"\$([A-Za-z_]\w*)").unwrap();
 

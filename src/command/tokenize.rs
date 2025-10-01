@@ -4,8 +4,8 @@ use crate::expansion::Aliases;
 
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) enum Token {
-    Word(String),        // 通常の文字列
-    LiteralWord(String), // 通常の文字列
+    Word(String),        // 文字列"", (クウォート無しも)
+    LiteralWord(String), // 文字列''
     And,                 // &&
     Or,                  // ||
     RedirectOut,         // >

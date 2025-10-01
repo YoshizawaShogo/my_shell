@@ -5,7 +5,7 @@ use crate::{
 use std::ffi::OsString;
 use std::{collections::BTreeSet, fs, os::unix::fs::PermissionsExt, path::Path};
 
-///  PATH上の実行可能ファイルが変更されることは稀だと考えるので、
+/// PATH上の実行可能ファイルが変更されることは稀だと考えるので、
 /// 考慮しないこととする。
 pub(crate) struct Executables {
     executables: BTreeSet<String>,
