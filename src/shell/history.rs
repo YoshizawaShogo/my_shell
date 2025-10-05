@@ -5,19 +5,20 @@ use std::{
     path::Path,
 };
 
-const HISTORY_FILE: &str = ".my_shell_history";
-
-pub(crate) struct History {
+pub struct History {
     log_path: String,
     capacity: usize,
-    pub(crate) log: VecDeque<(String, String)>, // abs-path, command
+    pub log: VecDeque<(String, String)>, // abs-path, command
     hash: BTreeSet<(String, String)>,
     index: usize,
+    buffer: String,
 }
 
 impl History {
-    pub(crate) fn new(capacity: usize) -> Self {
-        let history_path = env::var("HOME").unwrap() + "/" + HISTORY_FILE;
+    pub fn new(capacity: usize) -> Self {
+        let history_path = env::var("MY_SHELL_HISTORY").unwrap_or_else(|_| {
+            env::var("HOME").expect("HOME not set") + "/" + ".my_shell_history"
+        });
         if !Path::new(&history_path).is_file() {
             File::create(&history_path).unwrap();
         }
@@ -39,9 +40,10 @@ impl History {
             log: command_log,
             hash,
             index: 0,
+            buffer: String::new(),
         }
     }
-    pub(crate) fn push(&mut self, pwd: String, cmd: String) {
+    pub fn push(&mut self, pwd: String, cmd: String) {
         let value = (pwd, cmd);
         if self.hash.contains(&value) {
             let i = self.log.iter().position(|x| x == &value).unwrap();
@@ -56,23 +58,27 @@ impl History {
         }
         self.index = 0;
     }
-    pub(crate) fn prev(&mut self) -> String {
-        if self.log.len() - 1 > self.index {
+    pub fn prev(&mut self, buffer: &str) -> String {
+        if self.index == 0 {
+            // 現在打ち込んでいるコマンドラインが消えないように
+            self.buffer = buffer.to_string();
+        }
+        if self.index + 1 < self.log.len() {
             self.index += 1;
         }
         self.log[self.log.len() - self.index].clone().1
     }
-    pub(crate) fn next(&mut self) -> String {
+    pub fn next(&mut self) -> String {
         if 0 < self.index {
             self.index -= 1;
         }
         if self.index == 0 {
-            "".to_string()
+            self.buffer.clone()
         } else {
             self.log[self.log.len() - self.index].clone().1
         }
     }
-    pub(crate) fn store(&self) {
+    pub fn store(&self) {
         let log_str = self
             .log
             .iter()
@@ -82,7 +88,7 @@ impl History {
             .join("\n");
         fs::write(&self.log_path, log_str).unwrap();
     }
-    pub(crate) fn find_history_rev(&self, current: &str) -> Option<&String> {
+    pub fn find_history_rev(&self, current: &str) -> Option<&String> {
         let pwd = env::current_dir().unwrap().to_string_lossy().into_owned();
         let first_candidate = self
             .log

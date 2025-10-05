@@ -1,57 +1,3 @@
-use libc::{FD_SET, FD_ZERO, c_int, fd_set, read, select, timeval};
-use std::io;
-use std::os::fd::RawFd;
-
-const STDIN_FD: RawFd = 0;
-const CTRL_D: u8 = 0x04;
-
-/// 最初の1バイトを受け取った後、短いタイムアウトで連続バイトを吸い上げる
-fn drain_burst(first: u8, timeout_ms: i64) -> io::Result<Vec<u8>> {
-    let mut buf = vec![first];
-    loop {
-        let mut rfds = unsafe { std::mem::zeroed::<fd_set>() };
-        unsafe {
-            FD_ZERO(&mut rfds);
-            FD_SET(STDIN_FD as c_int, &mut rfds);
-        }
-        let mut tv = timeval {
-            tv_sec: (timeout_ms / 1000) as _,
-            tv_usec: ((timeout_ms % 1000) * 1000) as _,
-        };
-        let ready = unsafe {
-            select(
-                1,
-                &mut rfds,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &mut tv,
-            )
-        };
-        if ready < 0 {
-            return Err(io::Error::last_os_error());
-        } else if ready == 0 {
-            break;
-        } else {
-            let mut byte: u8 = 0;
-            let n = unsafe { read(STDIN_FD, &mut byte as *mut u8 as *mut _, 1) };
-            if n < 0 {
-                return Err(io::Error::last_os_error());
-            } else if n == 0 {
-                break;
-            } else {
-                buf.push(byte);
-                if byte == CTRL_D {
-                    break;
-                }
-            }
-        }
-    }
-    Ok(buf)
-}
-
-// ==============================
-// 入力表現: Modifier / Key
-// ==============================
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct Modifier {
     pub ctrl: bool,
@@ -104,9 +50,6 @@ pub enum Key {
     Unknown,
 }
 
-// ==============================
-// 変換 API（Vec<u8> → Vec<Key>）
-// ==============================
 pub fn parse_keys(bytes: &[u8]) -> Vec<Key> {
     let mut out = Vec::new();
     let mut i = 0;
@@ -168,11 +111,6 @@ pub fn parse_keys(bytes: &[u8]) -> Vec<Key> {
     out
 }
 
-// ==============================
-// 補助：CSI / 単キー / Alt付与 / 修飾デコード
-// ==============================
-
-/// CSI 解析: ESC [ ... <final>
 fn parse_csi(bytes: &[u8]) -> (Option<Key>, usize) {
     if bytes.len() < 3 || bytes[0] != 0x1b || bytes[1] != b'[' {
         return (None, 0);
@@ -345,7 +283,7 @@ fn add_alt(k: Key) -> Key {
     }
 }
 
-// xterm: 2=Shift, 3=Alt, 4=Shift+Alt, 5=Ctrl, 6=Shift+Ctrl, 7=Alt+Ctrl, 8=Shift+Alt+Ctrl
+/// xterm: 2=Shift, 3=Alt, 4=Shift+Alt, 5=Ctrl, 6=Shift+Ctrl, 7=Alt+Ctrl, 8=Shift+Alt+Ctrl
 fn mods_from_xterm_param(p: u32) -> Modifier {
     let mut m = Modifier::NONE;
     if matches!(p, 2 | 4 | 6 | 8) {
@@ -354,30 +292,9 @@ fn mods_from_xterm_param(p: u32) -> Modifier {
     if matches!(p, 3 | 4 | 7 | 8) {
         m = m.with_alt();
     }
+    #[allow(clippy::manual_range_patterns)]
     if matches!(p, 5 | 6 | 7 | 8) {
         m = m.with_ctrl();
     }
     m
-}
-
-pub fn wait_keys(timeout_ms: i64) -> io::Result<Vec<Key>> {
-    loop {
-        let mut b: u8 = 0;
-        let n = unsafe { read(STDIN_FD, &mut b as *mut u8 as *mut _, 1) };
-
-        if n < 0 {
-            let err = io::Error::last_os_error();
-            // シグナル割り込みはリトライ
-            if err.kind() == io::ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(err);
-        } else if n == 0 {
-            // EOF（例: Ctrl-D が行頭で押されたとき等）
-            return Ok(Vec::new());
-        }
-
-        let burst = drain_burst(b, timeout_ms)?;
-        return Ok(parse_keys(&burst));
-    }
 }

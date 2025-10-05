@@ -1,60 +1,48 @@
-use crate::error::Result;
-use crate::out_session::OutSession;
-use crate::out_session::term_size::read_terminal_size;
-use std::env;
-use std::fs;
-use std::io::{Write, stdout};
-use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    env, fs,
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-impl<'a> OutSession<'a> {
-    #[inline]
-    pub fn display_prompt(&self) -> Result<()> {
-        display_prompt()
-    }
-}
+use crate::output::{
+    ansi::{
+        color::{Color, fg},
+        util::strip_ansi,
+    },
+    term_size::read_terminal_size,
+};
 
-pub fn display_prompt() -> Result<()> {
-    // ANSI Colors
-    // let blue = "\x1b[34m";
-    let cyan = "\x1b[36m";
-    let yellow = "\x1b[33m";
-    let green = "\x1b[32m";
-    // let red = "\x1b[31m";
-    let gray = "\x1b[90m"; // 薄いグレー
-    let reset = "\x1b[0m";
-
+pub fn get_prompt() -> String {
     let user = get_username();
     let host = get_hostname();
     let cwd = get_current_dir();
     let clock = get_current_time_string();
 
     let git_info = match get_git_branch() {
-        Some(branch) => {
-            format!(" on {}{}{}", green, branch, reset)
-        }
+        Some(branch) => format!(
+            " on {green}{branch}{reset}",
+            green = fg(Color::Green),
+            reset = fg(Color::Reset),
+        ),
         None => String::new(),
     };
 
     let left = format!(
-        "# {}{}@{}{}: {}{}{}{}{}",
-        cyan, user, host, reset, yellow, cwd, reset, git_info, reset,
+        "# {cyan}{user}@{host}{reset}: {yellow}{cwd}{reset}{git_info}{reset}",
+        cyan = fg(Color::Cyan),
+        yellow = fg(Color::Yellow),
+        reset = fg(Color::Reset),
     );
 
     let width: usize = read_terminal_size().width.into();
-    let space_count = width.saturating_sub(strip_ansi(&left).len() + 8); // clock は8文字 "hh:mm:ss"
+    let space_count = width.saturating_sub(strip_ansi(&left).len() + 8); // "hh:mm:ss" -> 8文字
     let spaces = " ".repeat(space_count);
 
-    write!(
-        stdout().lock(),
-        "{}{}{}{}{}\r\n",
-        left,
-        spaces,
-        gray,
-        clock,
-        reset
-    )?;
-    Ok(())
+    format!(
+        "{left}{spaces}{gray}{clock}{reset}\r\n",
+        gray = fg(Color::BrightBlack),
+        reset = fg(Color::Reset)
+    )
 }
 
 fn get_username() -> String {
@@ -104,11 +92,4 @@ fn get_current_time_string() -> String {
     let minutes = (seconds % 3600) / 60;
     let seconds = seconds % 60;
     format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
-}
-
-// ANSIコードを除去して文字数を数えるための関数
-fn strip_ansi(s: &str) -> String {
-    use regex::Regex;
-    let re = Regex::new(r"\x1b\[[0-9;]*m").unwrap();
-    re.replace_all(s, "").to_string()
 }

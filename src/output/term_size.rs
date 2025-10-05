@@ -4,16 +4,16 @@ use std::mem;
 use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex, OnceLock};
 
-pub(crate) fn init() {
+pub fn init() {
     init_terminal_size();
     init_sigwinch();
 }
 
 #[repr(C)]
 #[derive(Debug, Clone)]
-pub(crate) struct TerminalSize {
-    height: u16,
-    pub(crate) width: u16,
+pub struct TerminalSize {
+    pub height: u16,
+    pub width: u16,
 }
 
 impl Default for TerminalSize {
@@ -46,13 +46,12 @@ fn get_terminal_size() -> Option<TerminalSize> {
 
 extern "C" fn handle_sigwinch(_: i32) {
     if let Some(arc_mutex) = TERMINAL_SIZE.get() {
-        let new = get_terminal_size().unwrap_or(TerminalSize::default());
-        // println!("{:?}", new);
+        let new = get_terminal_size().unwrap_or_default();
         *arc_mutex.lock().unwrap() = new;
     }
 }
 
-pub(crate) fn read_terminal_size() -> TerminalSize {
+pub fn read_terminal_size() -> TerminalSize {
     if let Some(arc_mutex) = TERMINAL_SIZE.get() {
         arc_mutex.lock().unwrap().clone()
     } else {
@@ -61,9 +60,7 @@ pub(crate) fn read_terminal_size() -> TerminalSize {
 }
 
 fn init_terminal_size() {
-    let size = Arc::new(Mutex::new(
-        get_terminal_size().unwrap_or(TerminalSize::default()),
-    ));
+    let size = Arc::new(Mutex::new(get_terminal_size().unwrap_or_default()));
     TERMINAL_SIZE.get_or_init(|| size);
 }
 

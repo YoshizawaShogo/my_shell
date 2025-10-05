@@ -1,18 +1,15 @@
-// src/error.rs
 use std::{env, fmt, io};
 
-/// このクレート全体で使う Result エイリアス
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// まとめて扱うエラー型（必要に応じて後で増やせます）
 #[derive(Debug)]
 pub enum Error {
     Io(io::Error),
     Fmt(fmt::Error),
     VarError(env::VarError),
-    // 例: Utf8(std::str::Utf8Error),
-    // 例: ParseInt(std::num::ParseIntError),
-    // 例: Custom(&'static str),
+    NoExitCode,
+    ThreadPanic,
+    NoChild,
 }
 
 impl fmt::Display for Error {
@@ -21,10 +18,12 @@ impl fmt::Display for Error {
             Error::Io(e) => write!(f, "IO error: {e}"),
             Error::Fmt(e) => write!(f, "Format error: {e}"),
             Error::VarError(e) => write!(f, "Variable error: {e}"),
+            Error::NoExitCode => write!(f, "process terminated without an exit code"),
+            Error::ThreadPanic => write!(f, "thread panicked"),
+            Error::NoChild => write!(f, "no child to wait on"),
         }
     }
 }
-
 impl std::error::Error for Error {}
 
 impl From<io::Error> for Error {
