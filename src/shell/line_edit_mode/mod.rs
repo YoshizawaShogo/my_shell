@@ -14,9 +14,14 @@ use crate::{
         term_size::read_terminal_size,
     },
     shell::{
-        line_edit_mode::key_function::KeyFunction, pipeline::{
-            execute::execute, parse::parse, pre_parse::{expand_abbr, expand_aliases}, tokenize::{tokenize, tokens_to_string}
-        }, Shell
+        Shell,
+        line_edit_mode::key_function::KeyFunction,
+        pipeline::{
+            execute::execute,
+            parse::parse,
+            pre_parse::expand_aliases,
+            tokenize::{tokenize, tokens_to_string},
+        },
     },
 };
 
@@ -120,14 +125,8 @@ fn apply(
             *cursor = buffer.len();
         }
         KeyFunction::Enter => {
-            let tokens = expand_abbr(tokenize(&buffer), shell);
-            let new_buffer = tokens_to_string(&tokens);
-            if *buffer != new_buffer {
-                *buffer = new_buffer;
-                delete_pre_buffer(*cursor);
-                print_buffer_cursor(buffer, *cursor);
-            }
-            let tokens = expand_aliases(tokens, shell);
+            expand_abbr(shell, buffer, cursor);
+            let tokens = expand_aliases(tokenize(&buffer), shell);
             let Some(parsed) = parse(&tokens) else {
                 return;
             };
@@ -204,20 +203,24 @@ fn apply(
             *cursor = 0;
         }
         KeyFunction::Space => {
-            let mut target = buffer[0..*cursor].to_string();
-            let tail = &buffer[*cursor..];
-            let tokens = expand_abbr(tokenize(&target), shell);
-            let new_target = tokens_to_string(&tokens);
-            if target != new_target {
-                delete_pre_buffer(*cursor);
-                *cursor = new_target.len();
-                target = new_target;
-                *buffer = target + tail;
-                print_buffer_cursor(buffer, *cursor);
-            }
+            expand_abbr(shell, buffer, cursor);
             buffer.insert(*cursor, ' ');
             *cursor += 1;
         }
         _ => (),
+    }
+}
+
+fn expand_abbr(shell: &Arc<Mutex<Shell>>, buffer: &mut String, cursor: &mut usize) {
+    let target = buffer[0..*cursor].to_string();
+    let tail = &buffer[*cursor..];
+    let tokens = tokenize(&target);
+    let expand_abbr_tokens = crate::shell::pipeline::pre_parse::expand_abbr(tokens.clone(), shell);
+    if tokens != expand_abbr_tokens {
+        let new_target = tokens_to_string(&expand_abbr_tokens);
+        delete_pre_buffer(*cursor);
+        *cursor = new_target.len();
+        *buffer = new_target + tail;
+        print_buffer_cursor(buffer, *cursor);
     }
 }
