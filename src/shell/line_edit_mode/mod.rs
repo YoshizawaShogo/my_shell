@@ -14,14 +14,9 @@ use crate::{
         term_size::read_terminal_size,
     },
     shell::{
-        Shell,
-        line_edit_mode::key_function::KeyFunction,
-        pipeline::{
-            execute::execute,
-            parse::parse,
-            pre_parse::pre_parse,
-            tokenize::{tokenize, tokens_to_string},
-        },
+        line_edit_mode::key_function::KeyFunction, pipeline::{
+            execute::execute, parse::parse, pre_parse::{expand_abbr, expand_aliases}, tokenize::{tokenize, tokens_to_string}
+        }, Shell
     },
 };
 
@@ -125,13 +120,14 @@ fn apply(
             *cursor = buffer.len();
         }
         KeyFunction::Enter => {
-            let tokens = pre_parse(tokenize(&buffer), shell);
+            let tokens = expand_abbr(tokenize(&buffer), shell);
             let new_buffer = tokens_to_string(&tokens);
             if *buffer != new_buffer {
                 *buffer = new_buffer;
                 delete_pre_buffer(*cursor);
                 print_buffer_cursor(buffer, *cursor);
             }
+            let tokens = expand_aliases(tokens, shell);
             let Some(parsed) = parse(&tokens) else {
                 return;
             };
@@ -206,6 +202,21 @@ fn apply(
             }
             buffer.clear();
             *cursor = 0;
+        }
+        KeyFunction::Space => {
+            let mut target = buffer[0..*cursor].to_string();
+            let tail = &buffer[*cursor..];
+            let tokens = expand_abbr(tokenize(&target), shell);
+            let new_target = tokens_to_string(&tokens);
+            if target != new_target {
+                delete_pre_buffer(*cursor);
+                *cursor = new_target.len();
+                target = new_target;
+                *buffer = target + tail;
+                print_buffer_cursor(buffer, *cursor);
+            }
+            buffer.insert(*cursor, ' ');
+            *cursor += 1;
         }
         _ => (),
     }

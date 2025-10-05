@@ -5,20 +5,9 @@ use crate::shell::{
     pipeline::tokenize::{QuoteKind, Token, tokenize},
 };
 
-/// alias / abbr の展開を行う（parse 前処理）
-/// - alias: コマンド先頭にある **Unquoted** な単語のみ対象
-/// - abbr : 最後の **Unquoted** な単語のみ対象
-///
-/// tokenize → pre_parse → parse の順で呼び出す
-pub fn pre_parse(tokens: Vec<Token>, shell: &Arc<Mutex<Shell>>) -> Vec<Token> {
-    let tokens = expand_aliases(tokens, shell);
-    let tokens = expand_abbr(tokens, shell);
-    tokens
-}
-
 /// alias 展開（コマンド先頭のみ / QuoteKind::None のみ）
 /// コマンド先頭は文頭または `|`, `2|`, `&|`, `&&`, `||` の直後。
-fn expand_aliases(mut tokens: Vec<Token>, shell: &Arc<Mutex<Shell>>) -> Vec<Token> {
+pub fn expand_aliases(mut tokens: Vec<Token>, shell: &Arc<Mutex<Shell>>) -> Vec<Token> {
     const MAX_ALIAS_EXPANSIONS: usize = 32;
 
     let mut at_cmd_head = true;
@@ -79,7 +68,7 @@ fn expand_aliases(mut tokens: Vec<Token>, shell: &Arc<Mutex<Shell>>) -> Vec<Toke
 }
 
 /// abbr 展開（最後が**Unquoted** な Word の時のみ）
-fn expand_abbr(mut tokens: Vec<Token>, shell: &Arc<Mutex<Shell>>) -> Vec<Token> {
+pub fn expand_abbr(mut tokens: Vec<Token>, shell: &Arc<Mutex<Shell>>) -> Vec<Token> {
     use crate::shell::pipeline::tokenize::QuoteKind;
 
     let Some(last_idx) = tokens

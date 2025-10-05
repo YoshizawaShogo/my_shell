@@ -16,11 +16,13 @@ pub enum KeyFunction {
     Delete,     // Delete
     Clear,      // 画面クリア（既定: Ctrl-L）
     DeleteWord, // 単語削除（既定: Alt-Backspace / Ctrl-W）
+    Space,
 }
 
 impl Key {
     pub fn function(&self) -> Option<KeyFunction> {
         Some(match self {
+            Key::Char(' ', Modifier { .. }) => KeyFunction::Space,
             Key::Char(
                 c,
                 Modifier {
@@ -29,6 +31,7 @@ impl Key {
                     ..
                 },
             ) => KeyFunction::Char(*c),
+
             Key::Backspace(_) | Key::Char('h', Modifier { ctrl: true, .. }) => {
                 KeyFunction::BackSpace
             }

@@ -8,7 +8,7 @@ use crate::shell::{
     Shell,
     builtins::{Builtin, Io},
     pipeline::{
-        execute::execute, parse::parse, pre_execute::expand_expr_with_shell, pre_parse::pre_parse,
+        execute::execute, parse::parse, pre_execute::expand_expr_with_shell,
         tokenize::tokenize,
     },
 };
@@ -67,9 +67,6 @@ pub fn source_with_io(args: &[String], shell: &Arc<Mutex<Shell>>, io: &mut Io) -
 
         // 1) tokenize
         let tokens = tokenize(trimmed);
-
-        // 2) pre_parse（alias / abbr）
-        let tokens = pre_parse(tokens, shell);
 
         // 3) parse
         let Some((expr, _consumed)) = parse(&tokens) else {
