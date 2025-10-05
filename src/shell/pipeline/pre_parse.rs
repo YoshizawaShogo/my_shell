@@ -1,12 +1,8 @@
-use std::{
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use crate::shell::{
     Shell,
-    pipeline::{
-        tokenize::{QuoteKind, Token, tokenize},
-    },
+    pipeline::tokenize::{QuoteKind, Token, tokenize},
 };
 
 /// alias / abbr の展開を行う（parse 前処理）
