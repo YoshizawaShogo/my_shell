@@ -66,7 +66,7 @@ impl History {
             // 現在打ち込んでいるコマンドラインが消えないように
             self.buffer = buffer.to_string();
         }
-        if self.index + 1 < self.log.len() {
+        if self.index < self.log.len() {
             self.index += 1;
         }
         self.log[self.log.len() - self.index].clone().1

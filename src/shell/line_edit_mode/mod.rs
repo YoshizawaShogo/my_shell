@@ -373,6 +373,7 @@ fn apply(
         }
         KeyFunction::Enter => {
             expand_abbr(shell, buffer, cursor);
+            *buffer = buffer.trim().to_string();
             let tokens = expand_aliases(tokenize(&buffer), shell);
             let Some(parsed) = parse(&tokens) else {
                 return ApplyResult::None;
