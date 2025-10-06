@@ -479,7 +479,7 @@ fn apply(
     ApplyResult::None
 }
 
-fn expand_abbr(shell: &Arc<Mutex<Shell>>, buffer: &mut String, cursor: &mut usize,) {
+fn expand_abbr(shell: &Arc<Mutex<Shell>>, buffer: &mut String, cursor: &mut usize) {
     let target = buffer[0..*cursor].to_string();
     let tail = &buffer[*cursor..];
     let tokens = tokenize(&target);
