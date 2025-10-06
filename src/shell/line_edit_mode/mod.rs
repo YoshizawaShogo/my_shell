@@ -372,6 +372,11 @@ fn apply(
             *cursor = buffer.len();
         }
         KeyFunction::Enter => {
+            let ghost_len = history_suggestion(shell, buffer)
+                .map(|s| s.len())
+                .unwrap_or(0);
+            delete_pre_buffer(buffer.len() + ghost_len);
+            print_buffer_cursor(buffer, *cursor, None);
             expand_abbr(shell, buffer, cursor);
             *buffer = buffer.trim().to_string();
             let tokens = expand_aliases(tokenize(&buffer), shell);
