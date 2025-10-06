@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
 use crate::shell::{
-    completion::{CompletionStore, commands_from_expr, default_completion_path},
+    completion::{CompletionFilter, CompletionStore, commands_from_expr, default_completion_path},
     expansion::{Abbrs, Aliases},
     history::History,
     tab_completion_mode::exe_list::ExeList,
@@ -42,6 +42,9 @@ impl Shell {
         for name in crate::shell::builtins::name_list() {
             shell.exe_list.insert(name.to_string());
         }
+        let mut cd_filter = CompletionFilter::default();
+        cd_filter.type_filter = Some('d');
+        shell.completion.ensure_command_filter("cd", cd_filter);
         shell
     }
     pub fn start(&mut self) {}

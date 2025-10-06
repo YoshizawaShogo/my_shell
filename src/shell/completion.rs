@@ -18,11 +18,19 @@ pub struct CompletionStore {
 pub struct CommandEntry {
     pub options: BTreeSet<String>,
     pub subcommands: BTreeMap<String, SubcommandEntry>,
+    pub filter: CompletionFilter,
 }
 
 #[derive(Default, Clone, Debug)]
 pub struct SubcommandEntry {
     pub options: BTreeSet<String>,
+    pub filter: CompletionFilter,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CompletionFilter {
+    pub type_filter: Option<char>,
+    pub require_exec: bool,
 }
 
 impl CompletionStore {
@@ -46,6 +54,24 @@ impl CompletionStore {
         for line in content.lines() {
             let trimmed = line.trim();
             if trimmed.is_empty() {
+                continue;
+            }
+            if let Some(rest) = trimmed.strip_prefix('#') {
+                if let Some(cmd_name) = current_command.clone() {
+                    let update = parse_filter_comment(rest);
+                    if let Some(sub_name) = current_sub.clone() {
+                        let entry = self.data.entry(cmd_name).or_default();
+                        entry
+                            .subcommands
+                            .entry(sub_name)
+                            .or_default()
+                            .filter
+                            .merge(&update);
+                    } else {
+                        let entry = self.data.entry(cmd_name).or_default();
+                        entry.filter.merge(&update);
+                    }
+                }
                 continue;
             }
             if let Some(rest) = trimmed.strip_prefix("%%") {
@@ -101,11 +127,17 @@ impl CompletionStore {
         let mut file = File::create(&self.path)?;
         for (cmd, entry) in &self.data {
             writeln!(file, "%{}", cmd)?;
+            if let Some(line) = format_filter(&entry.filter) {
+                writeln!(file, "# {}", line)?;
+            }
             for opt in &entry.options {
                 writeln!(file, "{}", escape_option(opt))?;
             }
             for (sub, sub_entry) in &entry.subcommands {
                 writeln!(file, "%% {}", sub)?;
+                if let Some(line) = format_filter(&sub_entry.filter) {
+                    writeln!(file, "# {}", line)?;
+                }
                 for opt in &sub_entry.options {
                     writeln!(file, "{}", escape_option(opt))?;
                 }
@@ -209,6 +241,26 @@ impl CompletionStore {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    pub fn command_filter(&self, command: &str) -> CompletionFilter {
+        self.data
+            .get(command)
+            .map(|entry| entry.filter.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn subcommand_filter(&self, command: &str, subcommand: &str) -> CompletionFilter {
+        self.data
+            .get(command)
+            .and_then(|entry| entry.subcommands.get(subcommand))
+            .map(|sub| sub.filter.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn ensure_command_filter(&mut self, command: &str, default_filter: CompletionFilter) {
+        let entry = self.data.entry(command.to_string()).or_default();
+        entry.filter.apply_defaults(&default_filter);
     }
 }
 
@@ -330,6 +382,69 @@ fn canonicalize_option(option: &str) -> Option<String> {
         canonical.push(' ');
     }
     Some(canonical)
+}
+
+impl CompletionFilter {
+    pub fn merge(&mut self, other: &CompletionFilter) {
+        if let Some(t) = other.type_filter {
+            self.type_filter = Some(t);
+        }
+        if other.require_exec {
+            self.require_exec = true;
+        }
+    }
+
+    fn apply_defaults(&mut self, default: &CompletionFilter) {
+        if self.type_filter.is_none() {
+            self.type_filter = default.type_filter;
+        }
+        if default.require_exec {
+            self.require_exec = true;
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        self.type_filter.is_none() && !self.require_exec
+    }
+}
+
+fn parse_filter_comment(comment: &str) -> CompletionFilter {
+    let mut filter = CompletionFilter::default();
+    for part in comment.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        if let Some(value) = part.strip_prefix("type=") {
+            let value = value.trim();
+            if let Some(ch) = value.chars().next() {
+                filter.type_filter = Some(ch);
+            }
+        } else if let Some(value) = part.strip_prefix("perm=") {
+            if value.chars().any(|c| c == 'x' || c == 'X') {
+                filter.require_exec = true;
+            }
+        }
+    }
+    filter
+}
+
+fn format_filter(filter: &CompletionFilter) -> Option<String> {
+    if filter.is_default() {
+        return None;
+    }
+    let mut parts = Vec::new();
+    if let Some(t) = filter.type_filter {
+        parts.push(format!("type={}", t));
+    }
+    if filter.require_exec {
+        parts.push("perm=x".to_string());
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(", "))
+    }
 }
 
 fn parse_options_from_help(help_output: &str) -> Vec<String> {

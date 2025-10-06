@@ -37,9 +37,9 @@ pub fn line_edit_mode(shell: &Arc<Mutex<Shell>>) {
 
     let mut buffer = String::new();
     let mut cursor = 0;
-    let mut pre_cursor = cursor;
     let mut pending_tab_list: Option<Vec<DisplayEntry>> = None;
     let mut last_key_was_tab = false;
+    let mut last_display_len = 0;
 
     'main_loop: loop {
         let keys = match wait_keys(10) {
@@ -50,6 +50,7 @@ pub fn line_edit_mode(shell: &Arc<Mutex<Shell>>) {
 
         let mut tab_display: Option<Vec<DisplayEntry>> = None;
         let mut exit_requested = false;
+        let mut ghost_override: Option<Option<String>> = None;
 
         for key_func in key_functions.flatten() {
             let is_tab = matches!(key_func, KeyFunction::Tab);
@@ -67,6 +68,7 @@ pub fn line_edit_mode(shell: &Arc<Mutex<Shell>>) {
 
             match apply(key_func, shell, &mut buffer, &mut cursor) {
                 ApplyResult::Tab(display) => {
+                    ghost_override = Some(None);
                     if display.is_empty() {
                         pending_tab_list = None;
                         last_key_was_tab = false;
@@ -80,6 +82,10 @@ pub fn line_edit_mode(shell: &Arc<Mutex<Shell>>) {
                     } else {
                         tab_display = Some(display);
                     }
+                }
+                ApplyResult::Ghost(opt) => {
+                    ghost_override = Some(opt);
+                    continue;
                 }
                 ApplyResult::Exit => {
                     exit_requested = true;
@@ -108,19 +114,28 @@ pub fn line_edit_mode(shell: &Arc<Mutex<Shell>>) {
             break 'main_loop;
         }
 
+        let new_ghost = ghost_override.unwrap_or_else(|| {
+            if cursor == buffer.len() {
+                history_suggestion(shell, &buffer)
+            } else {
+                None
+            }
+        });
+
         if let Some(display) = tab_display {
             set_origin_term();
             if !display.is_empty() {
-                print_tab_candidates(&display, &buffer, cursor);
+                last_display_len = print_tab_candidates(&display, &buffer, cursor);
+            } else {
+                delete_pre_buffer(last_display_len);
+                last_display_len = print_buffer_cursor(&buffer, cursor, None);
             }
             set_raw_term();
-            pre_cursor = cursor;
             pending_tab_list = None;
             last_key_was_tab = false;
         } else {
-            delete_pre_buffer(pre_cursor);
-            pre_cursor = cursor;
-            print_buffer_cursor(&buffer, cursor);
+            delete_pre_buffer(last_display_len);
+            last_display_len = print_buffer_cursor(&buffer, cursor, new_ghost.as_deref());
         }
         flush();
     }
@@ -133,25 +148,34 @@ fn print_prompt() {
     write!(stdout().lock(), "{}", get_prompt()).unwrap();
 }
 
-fn delete_pre_buffer(cursor: usize) {
+fn delete_pre_buffer(display_len: usize) {
+    if display_len == 0 {
+        return;
+    }
     write!(
         stdout().lock(),
         "{}",
-        crate::output::ansi::util::delete_buffer(cursor)
+        crate::output::ansi::util::delete_buffer(display_len)
     )
     .unwrap();
 }
 
-fn print_buffer_cursor(buffer: &str, cursor: usize) {
+fn print_buffer_cursor(buffer: &str, cursor: usize, ghost: Option<&str>) -> usize {
     let width = read_terminal_size().width;
     let mut out = stdout().lock();
     write!(out, "{}", buffer).unwrap();
-    if buffer.len() % width as usize == 0 && buffer.len() != 0 {
+    let ghost_len = ghost.map(|g| g.len()).unwrap_or(0);
+    if let Some(text) = ghost {
+        write!(out, "\x1b[90m{}\x1b[0m", text).unwrap();
+    }
+    let display_len = buffer.len() + ghost_len;
+    if display_len % width as usize == 0 && display_len != 0 {
         write!(out, "{}", scroll_up(1)).unwrap();
     }
-    write!(out, "{}", cursor_back(buffer.len())).unwrap();
+    write!(out, "{}", cursor_back(display_len)).unwrap();
     write!(out, "{}", cursor_down(cursor as u32 / width as u32)).unwrap();
     write!(out, "{}", cursor_right(cursor as u32 % width as u32)).unwrap();
+    display_len
 }
 
 fn print_newline() {
@@ -162,9 +186,9 @@ fn print_clear() {
     write!(stdout().lock(), "{}", clear()).unwrap();
 }
 
-fn print_tab_candidates(candidates: &[DisplayEntry], buffer: &str, cursor: usize) {
+fn print_tab_candidates(candidates: &[DisplayEntry], buffer: &str, cursor: usize) -> usize {
     if candidates.is_empty() {
-        return;
+        return 0;
     }
     print_newline();
     {
@@ -202,7 +226,7 @@ fn print_tab_candidates(candidates: &[DisplayEntry], buffer: &str, cursor: usize
     }
     print_newline();
     print_prompt();
-    print_buffer_cursor(buffer, cursor);
+    print_buffer_cursor(buffer, cursor, None)
 }
 
 fn flush() {
@@ -212,6 +236,7 @@ fn flush() {
 enum ApplyResult {
     None,
     Tab(Vec<DisplayEntry>),
+    Ghost(Option<String>),
     Exit,
 }
 
@@ -322,10 +347,17 @@ fn apply(
                 *cursor -= 1;
             }
         }
-        KeyFunction::Right => {
+        KeyFunction::Right | KeyFunction::Ctrl('f') => {
+            let suggestion = history_suggestion(shell, buffer);
             if *cursor < buffer.len() {
                 *cursor += 1;
+                return ApplyResult::Ghost(suggestion);
+            } else if let Some(suffix) = suggestion {
+                buffer.push_str(&suffix);
+                *cursor = buffer.len();
+                return ApplyResult::Ghost(None);
             }
+            return ApplyResult::Ghost(None);
         }
         KeyFunction::Tab => {
             if let Some(display) = tab_completion_mode(shell, buffer, cursor) {
@@ -394,7 +426,6 @@ fn apply(
         KeyFunction::Clear => {
             print_clear();
             print_prompt();
-            print_buffer_cursor(&buffer, *cursor);
         }
         KeyFunction::DeleteWord => {
             if buffer.is_empty() || *cursor == 0 {
@@ -431,8 +462,6 @@ fn apply(
         }
         KeyFunction::Ctrl('c') => {
             if !buffer.is_empty() {
-                delete_pre_buffer(*cursor);
-                print_buffer_cursor(buffer, *cursor);
                 print_newline();
                 print_prompt();
             }
@@ -456,9 +485,24 @@ fn expand_abbr(shell: &Arc<Mutex<Shell>>, buffer: &mut String, cursor: &mut usiz
     let expand_abbr_tokens = crate::shell::pipeline::pre_parse::expand_abbr(tokens.clone(), shell);
     if tokens != expand_abbr_tokens {
         let new_target = tokens_to_string(&expand_abbr_tokens);
-        delete_pre_buffer(*cursor);
         *cursor = new_target.len();
         *buffer = new_target + tail;
-        print_buffer_cursor(buffer, *cursor);
     }
+}
+
+fn history_suggestion(shell: &Arc<Mutex<Shell>>, buffer: &str) -> Option<String> {
+    if buffer.is_empty() {
+        return None;
+    }
+    let suggestion = {
+        let sh = shell.lock().ok()?;
+        sh.history.find_history_rev(buffer).cloned()?
+    };
+    if suggestion.len() <= buffer.len() {
+        return None;
+    }
+    suggestion
+        .strip_prefix(buffer)
+        .filter(|s| !s.is_empty())
+        .map(|rest| rest.to_string())
 }

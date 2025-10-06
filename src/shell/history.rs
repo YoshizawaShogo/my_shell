@@ -59,6 +59,9 @@ impl History {
         self.index = 0;
     }
     pub fn prev(&mut self, buffer: &str) -> String {
+        if self.log.is_empty() {
+            return String::new();
+        }
         if self.index == 0 {
             // 現在打ち込んでいるコマンドラインが消えないように
             self.buffer = buffer.to_string();

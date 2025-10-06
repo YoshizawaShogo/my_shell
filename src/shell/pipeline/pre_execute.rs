@@ -1,8 +1,7 @@
 // pre_execute.rs
 use std::{
     collections::{BTreeMap, HashMap},
-    env,
-    fs,
+    env, fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -266,11 +265,7 @@ fn expand_glob_pattern(pattern: &str) -> Vec<String> {
             path.to_string_lossy().to_string()
         } else if let Ok(stripped) = path.strip_prefix(".") {
             let s = stripped.to_string_lossy().to_string();
-            if s.is_empty() {
-                String::from('.')
-            } else {
-                s
-            }
+            if s.is_empty() { ".".to_string() } else { s }
         } else {
             path.to_string_lossy().to_string()
         };
@@ -315,5 +310,3 @@ fn wildcard_match(pattern: &str, text: &str) -> bool {
 
     p == p_bytes.len()
 }
-
-fn expand_glob_pattern(pattern: &str) gives Vec<String>? We'll add soon.

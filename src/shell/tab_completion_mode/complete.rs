@@ -1,13 +1,14 @@
 use std::{
-    env::current_dir,
+    env::{self, current_dir},
     fs::read_dir,
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
 use crate::shell::{
     Shell,
-    completion::{command_name, looks_like_path},
+    completion::{CompletionFilter, command_name, looks_like_path},
 };
 
 #[derive(Debug, Clone)]
@@ -40,6 +41,7 @@ enum Context {
         command: String,
         subcommand: Option<String>,
     },
+    Variable,
 }
 
 type CandidateList = Vec<Candidate>;
@@ -85,7 +87,10 @@ pub fn complete(
 
     let (mut candidates, prefix, file_mode) = match context {
         Context::File => {
-            let candidates = collect_file_candidates(&dir_part, &file_prefix);
+            let filter = resolve_filter(shell, command_opt.as_ref(), subcommand_opt.as_ref());
+            let require_exec = token.starts_with("./") || dir_part.starts_with("./");
+            let candidates =
+                collect_file_candidates(&dir_part, &file_prefix, &filter, require_exec);
             let transformed = candidates
                 .into_iter()
                 .map(|c| {
@@ -121,7 +126,10 @@ pub fn complete(
             let prefix = token.clone();
             let mut candidates = gather_subcommand_candidates(shell, &command, &prefix);
             if candidates.is_empty() {
-                let file_candidates = collect_file_candidates(&dir_part, &file_prefix);
+                let filter = resolve_filter(shell, Some(&command), None);
+                let require_exec = token.starts_with("./") || dir_part.starts_with("./");
+                let file_candidates =
+                    collect_file_candidates(&dir_part, &file_prefix, &filter, require_exec);
                 let transformed = file_candidates
                     .into_iter()
                     .map(|c| {
@@ -159,6 +167,23 @@ pub fn complete(
             let prefix = token.clone();
             let candidates =
                 gather_option_candidates(shell, &command, subcommand.as_deref(), &prefix);
+            let transformed = candidates
+                .into_iter()
+                .map(|value| {
+                    let plain = value.clone();
+                    Candidate {
+                        styled_display: styled_display(&plain, &prefix),
+                        plain_display: plain,
+                        value,
+                        append_slash: false,
+                    }
+                })
+                .collect::<CandidateList>();
+            (transformed, prefix, false)
+        }
+        Context::Variable => {
+            let prefix = token.clone();
+            let candidates = gather_variable_candidates(shell, &prefix);
             let transformed = candidates
                 .into_iter()
                 .map(|value| {
@@ -247,6 +272,9 @@ fn determine_context(
     command_opt: Option<String>,
     subcommand_opt: Option<String>,
 ) -> Context {
+    if token.starts_with('$') {
+        return Context::Variable;
+    }
     if !dir_part.is_empty() {
         return Context::File;
     }
@@ -392,7 +420,12 @@ fn find_segment_start(input: &str) -> usize {
     start
 }
 
-fn collect_file_candidates(dir_part: &str, file_prefix: &str) -> Vec<FileCandidate> {
+fn collect_file_candidates(
+    dir_part: &str,
+    file_prefix: &str,
+    filter: &CompletionFilter,
+    require_exec_override: bool,
+) -> Vec<FileCandidate> {
     let search_dir = match resolve_search_dir(dir_part) {
         Some(dir) => dir,
         None => return Vec::new(),
@@ -400,6 +433,8 @@ fn collect_file_candidates(dir_part: &str, file_prefix: &str) -> Vec<FileCandida
     let Ok(entries) = read_dir(search_dir) else {
         return Vec::new();
     };
+
+    let apply_exec = filter.require_exec || require_exec_override;
 
     entries
         .filter_map(|entry| {
@@ -412,8 +447,71 @@ fn collect_file_candidates(dir_part: &str, file_prefix: &str) -> Vec<FileCandida
             if !name.starts_with(file_prefix) {
                 return None;
             }
-            let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+            let metadata = entry.metadata().ok()?;
+            let is_dir = metadata.is_dir();
+            if let Some('d') = filter.type_filter {
+                if !is_dir {
+                    return None;
+                }
+            }
+            if apply_exec {
+                let mode = metadata.permissions().mode();
+                if mode & 0o111 == 0 {
+                    return None;
+                }
+            }
             Some(FileCandidate { name, is_dir })
+        })
+        .collect()
+}
+
+fn resolve_filter(
+    shell: &Arc<Mutex<Shell>>,
+    command: Option<&String>,
+    subcommand: Option<&String>,
+) -> CompletionFilter {
+    if let Some(cmd) = command {
+        if let Ok(sh) = shell.lock() {
+            let mut filter = sh.completion.command_filter(cmd);
+            if let Some(sub) = subcommand {
+                let sub_filter = sh.completion.subcommand_filter(cmd, sub);
+                filter.merge(&sub_filter);
+            }
+            return filter;
+        }
+    }
+    CompletionFilter::default()
+}
+
+fn gather_variable_candidates(shell: &Arc<Mutex<Shell>>, token: &str) -> Vec<String> {
+    let (var_prefix, brace_mode) = if let Some(inner) = token.strip_prefix("${") {
+        let cleaned = inner.trim_end_matches('}');
+        (cleaned.to_string(), true)
+    } else if let Some(inner) = token.strip_prefix('$') {
+        (inner.to_string(), false)
+    } else {
+        (String::new(), false)
+    };
+
+    let prefix_clean = var_prefix
+        .chars()
+        .take_while(|c| *c == '_' || c.is_ascii_alphanumeric())
+        .collect::<String>();
+
+    let mut set = std::collections::BTreeSet::new();
+    if let Ok(sh) = shell.lock() {
+        set.extend(sh.variables.keys().cloned());
+    }
+    set.extend(env::vars().map(|(k, _)| k));
+
+    set.into_iter()
+        .filter(|name| name.starts_with(&prefix_clean))
+        .map(|name| {
+            if brace_mode {
+                format!("${{{}}}", name)
+            } else {
+                format!("${}", name)
+            }
         })
         .collect()
 }
