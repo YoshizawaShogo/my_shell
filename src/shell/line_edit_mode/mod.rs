@@ -479,15 +479,17 @@ fn apply(
     ApplyResult::None
 }
 
-fn expand_abbr(shell: &Arc<Mutex<Shell>>, buffer: &mut String, cursor: &mut usize) {
+fn expand_abbr(shell: &Arc<Mutex<Shell>>, buffer: &mut String, cursor: &mut usize,) {
     let target = buffer[0..*cursor].to_string();
     let tail = &buffer[*cursor..];
     let tokens = tokenize(&target);
     let expand_abbr_tokens = crate::shell::pipeline::pre_parse::expand_abbr(tokens.clone(), shell);
     if tokens != expand_abbr_tokens {
+        delete_pre_buffer(*cursor);
         let new_target = tokens_to_string(&expand_abbr_tokens);
         *cursor = new_target.len();
         *buffer = new_target + tail;
+        print_buffer_cursor(buffer, *cursor, None);
     }
 }
 
