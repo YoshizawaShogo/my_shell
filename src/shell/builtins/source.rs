@@ -8,8 +8,7 @@ use crate::shell::{
     Shell,
     builtins::{Builtin, Io},
     pipeline::{
-        execute::execute, parse::parse, pre_execute::expand_expr_with_shell,
-        tokenize::tokenize,
+        execute::execute, parse::parse, pre_execute::expand_expr_with_shell, tokenize::tokenize,
     },
 };
 

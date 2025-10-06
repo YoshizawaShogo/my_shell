@@ -1,8 +1,10 @@
 use std::{
     env::current_dir,
-    io::{Write, stdout},
-    process::exit,
+    io::{Read, Write, stdout},
+    process::{Command, Stdio},
     sync::{Arc, Mutex},
+    thread,
+    time::{Duration, Instant},
 };
 
 use crate::{
@@ -15,6 +17,7 @@ use crate::{
     },
     shell::{
         Shell,
+        completion::commands_from_expr,
         line_edit_mode::key_function::KeyFunction,
         pipeline::{
             execute::execute,
@@ -22,6 +25,7 @@ use crate::{
             pre_parse::expand_aliases,
             tokenize::{tokenize, tokens_to_string},
         },
+        tab_completion_mode::{DisplayEntry, tab_completion_mode},
     },
 };
 
@@ -34,21 +38,95 @@ pub fn line_edit_mode(shell: &Arc<Mutex<Shell>>) {
     let mut buffer = String::new();
     let mut cursor = 0;
     let mut pre_cursor = cursor;
-    loop {
+    let mut pending_tab_list: Option<Vec<DisplayEntry>> = None;
+    let mut last_key_was_tab = false;
+
+    'main_loop: loop {
         let keys = match wait_keys(10) {
             Ok(x) => x,
             Err(_) => continue,
         };
-        let key_functions = keys.into_iter().map(|x| x.function());
+        let key_functions = keys.into_iter().map(|x| x.edit_function());
 
-        for f in key_functions.flatten() {
-            apply(f, shell, &mut buffer, &mut cursor);
+        let mut tab_display: Option<Vec<DisplayEntry>> = None;
+        let mut exit_requested = false;
+
+        for key_func in key_functions.flatten() {
+            let is_tab = matches!(key_func, KeyFunction::Tab);
+
+            if is_tab && last_key_was_tab {
+                if let Some(list) = pending_tab_list.take() {
+                    tab_display = Some(list);
+                    last_key_was_tab = false;
+                    continue;
+                }
+            }
+
+            let before_buffer = buffer.clone();
+            let before_cursor = cursor;
+
+            match apply(key_func, shell, &mut buffer, &mut cursor) {
+                ApplyResult::Tab(display) => {
+                    if display.is_empty() {
+                        pending_tab_list = None;
+                        last_key_was_tab = false;
+                        continue;
+                    }
+                    if is_tab {
+                        tab_display = Some(display.clone());
+                        pending_tab_list = Some(display);
+                        last_key_was_tab = true;
+                        continue;
+                    } else {
+                        tab_display = Some(display);
+                    }
+                }
+                ApplyResult::Exit => {
+                    exit_requested = true;
+                    pending_tab_list = None;
+                    last_key_was_tab = false;
+                    break;
+                }
+                ApplyResult::None => {}
+            }
+
+            let changed = buffer != before_buffer || cursor != before_cursor;
+            if is_tab {
+                if changed {
+                    pending_tab_list = None;
+                    last_key_was_tab = false;
+                } else {
+                    last_key_was_tab = pending_tab_list.is_some();
+                }
+            } else {
+                pending_tab_list = None;
+                last_key_was_tab = false;
+            }
         }
-        delete_pre_buffer(pre_cursor);
-        pre_cursor = cursor;
-        print_buffer_cursor(&buffer, cursor);
+
+        if exit_requested {
+            break 'main_loop;
+        }
+
+        if let Some(display) = tab_display {
+            set_origin_term();
+            if !display.is_empty() {
+                print_tab_candidates(&display, &buffer, cursor);
+            }
+            set_raw_term();
+            pre_cursor = cursor;
+            pending_tab_list = None;
+            last_key_was_tab = false;
+        } else {
+            delete_pre_buffer(pre_cursor);
+            pre_cursor = cursor;
+            print_buffer_cursor(&buffer, cursor);
+        }
         flush();
     }
+    set_origin_term();
+    print_newline();
+    flush();
 }
 
 fn print_prompt() {
@@ -84,8 +162,140 @@ fn print_clear() {
     write!(stdout().lock(), "{}", clear()).unwrap();
 }
 
+fn print_tab_candidates(candidates: &[DisplayEntry], buffer: &str, cursor: usize) {
+    if candidates.is_empty() {
+        return;
+    }
+    print_newline();
+    {
+        let mut out = stdout().lock();
+        let width = read_terminal_size().width as usize;
+        let max_len = candidates
+            .iter()
+            .map(|c| c.plain.chars().count())
+            .max()
+            .unwrap_or(0);
+        let col_width = max_len.saturating_add(2).min(width.max(1));
+        let cols = if col_width == 0 {
+            1
+        } else {
+            (width / col_width).max(1)
+        };
+
+        for (idx, candidate) in candidates.iter().enumerate() {
+            if cols == 1 {
+                writeln!(out, "{}", candidate.styled).unwrap();
+                continue;
+            }
+            let is_row_end = (idx + 1) % cols == 0;
+            if is_row_end {
+                writeln!(out, "{}", candidate.styled).unwrap();
+            } else {
+                let plain_len = candidate.plain.chars().count();
+                let padding = col_width.saturating_sub(plain_len);
+                write!(out, "{}{}", candidate.styled, " ".repeat(padding)).unwrap();
+            }
+        }
+        if cols > 1 && candidates.len() % cols != 0 {
+            writeln!(out).unwrap();
+        }
+    }
+    print_newline();
+    print_prompt();
+    print_buffer_cursor(buffer, cursor);
+}
+
 fn flush() {
     stdout().lock().flush().unwrap();
+}
+
+enum ApplyResult {
+    None,
+    Tab(Vec<DisplayEntry>),
+    Exit,
+}
+
+fn capture_help_output(tokens: &[String]) -> Option<String> {
+    if tokens.is_empty() {
+        return None;
+    }
+    let command = &tokens[0];
+    if crate::shell::builtins::find(command.as_str()).is_some() {
+        return None;
+    }
+    let mut cmd = Command::new(command);
+    if tokens.len() > 1 {
+        cmd.args(&tokens[1..]);
+    }
+    cmd.env("PAGER", "cat")
+        .env("MANPAGER", "cat")
+        .env("GIT_PAGER", "cat")
+        .env("SYSTEMD_PAGER", "cat")
+        .env("HELP_PAGER", "cat")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().ok()?;
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    let stdout_handle = stdout.map(|mut out| {
+        thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = out.read_to_end(&mut buf);
+            buf
+        })
+    });
+    let stderr_handle = stderr.map(|mut err| {
+        thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = err.read_to_end(&mut buf);
+            buf
+        })
+    });
+
+    let timeout = Duration::from_millis(500);
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    return None;
+                }
+                break;
+            }
+            Ok(None) => {
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(_) => return None,
+        }
+    }
+
+    let stdout_buf = stdout_handle
+        .and_then(|h| h.join().ok())
+        .unwrap_or_default();
+    let stderr_buf = stderr_handle
+        .and_then(|h| h.join().ok())
+        .unwrap_or_default();
+
+    let mut text = String::from_utf8_lossy(&stdout_buf).into_owned();
+    let stderr_text = String::from_utf8_lossy(&stderr_buf);
+    if text.trim().is_empty() && !stderr_text.trim().is_empty() {
+        text = stderr_text.into_owned();
+    } else if !stderr_text.trim().is_empty() {
+        text.push('\n');
+        text.push_str(stderr_text.trim());
+    }
+    if text.trim().is_empty() {
+        return None;
+    }
+    Some(text)
 }
 
 fn apply(
@@ -93,7 +303,7 @@ fn apply(
     shell: &Arc<Mutex<Shell>>,
     buffer: &mut String,
     cursor: &mut usize,
-) {
+) -> ApplyResult {
     match key_function {
         KeyFunction::Char(c) => {
             buffer.insert(*cursor, c);
@@ -117,7 +327,12 @@ fn apply(
                 *cursor += 1;
             }
         }
-        KeyFunction::Tab => {}
+        KeyFunction::Tab => {
+            if let Some(display) = tab_completion_mode(shell, buffer, cursor) {
+                return ApplyResult::Tab(display);
+            }
+            return ApplyResult::None;
+        }
         KeyFunction::Home => {
             *cursor = 0;
         }
@@ -128,18 +343,38 @@ fn apply(
             expand_abbr(shell, buffer, cursor);
             let tokens = expand_aliases(tokenize(&buffer), shell);
             let Some(parsed) = parse(&tokens) else {
-                return;
+                return ApplyResult::None;
             };
             let parsed = super::pipeline::pre_execute::expand_expr_with_shell(&parsed.0, &shell);
+            let commands_for_help = commands_from_expr(&parsed);
             print_newline();
             set_origin_term();
-            let _ = execute(&parsed, shell);
+            let execute_result = execute(&parsed, shell);
             let pwd = current_dir().unwrap();
             shell
                 .lock()
                 .unwrap()
                 .history
                 .push(pwd.to_string_lossy().to_string(), buffer.clone());
+            if matches!(execute_result, Ok(code) if code == 0) {
+                let mut help_data = Vec::new();
+                for tokens in &commands_for_help {
+                    if tokens.iter().any(|t| t == "--help") {
+                        if let Some(text) = capture_help_output(tokens) {
+                            help_data.push((tokens.clone(), text));
+                        }
+                    }
+                }
+                if let Ok(mut sh) = shell.lock() {
+                    sh.record_completion_from_expr(&parsed);
+                    for (tokens, text) in help_data {
+                        sh.completion.record_help_output(&tokens, &text);
+                    }
+                }
+            }
+            if matches!(shell.lock().map(|sh| sh.exit_requested), Ok(true)) {
+                return ApplyResult::Exit;
+            }
             set_raw_term();
             print_prompt();
             buffer.clear();
@@ -185,8 +420,10 @@ fn apply(
         }
         KeyFunction::Ctrl('d') => {
             if buffer.is_empty() {
-                shell.lock().unwrap().history.store();
-                exit(0);
+                if let Ok(sh) = shell.lock() {
+                    sh.history.store();
+                }
+                return ApplyResult::Exit;
             }
             if *cursor < buffer.len() {
                 buffer.remove(*cursor);
@@ -202,13 +439,14 @@ fn apply(
             buffer.clear();
             *cursor = 0;
         }
+        KeyFunction::Ctrl(_) => {}
         KeyFunction::Space => {
             expand_abbr(shell, buffer, cursor);
             buffer.insert(*cursor, ' ');
             *cursor += 1;
         }
-        _ => (),
     }
+    ApplyResult::None
 }
 
 fn expand_abbr(shell: &Arc<Mutex<Shell>>, buffer: &mut String, cursor: &mut usize) {

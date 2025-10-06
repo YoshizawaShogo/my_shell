@@ -2,6 +2,8 @@
 use std::{
     collections::{BTreeMap, HashMap},
     env,
+    fs,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
@@ -125,12 +127,13 @@ fn expand_redirection(r: &Redirection, scope: &VarScope) -> Redirection {
 }
 
 fn expand_command(cmd: &CommandExpr, scope: &VarScope) -> CommandExpr {
-    CommandExpr {
+    let expanded_cmd = CommandExpr {
         cmd_name: expand_wordnode(&cmd.cmd_name, scope),
         args: cmd.args.iter().map(|w| expand_wordnode(w, scope)).collect(),
         stdout: expand_redirection(&cmd.stdout, scope),
         stderr: expand_redirection(&cmd.stderr, scope),
-    }
+    };
+    expand_globs(expanded_cmd)
 }
 
 /// 公開API: Shell（Arc<Mutex<…>>）から variables をスナップショットして展開
@@ -162,3 +165,155 @@ fn expand_expr_with_scope(expr: &Expr, scope: &VarScope) -> Expr {
         }
     }
 }
+
+fn expand_globs(mut cmd: CommandExpr) -> CommandExpr {
+    cmd.args = cmd
+        .args
+        .into_iter()
+        .flat_map(|arg| expand_word_glob(&arg).unwrap_or_else(|| vec![arg]))
+        .collect();
+    cmd
+}
+
+fn expand_word_glob(word: &WordNode) -> Option<Vec<WordNode>> {
+    let mut combined = String::new();
+    for segment in &word.segments {
+        match segment {
+            Segment::Unquoted(text) => combined.push_str(text),
+            _ => return None,
+        }
+    }
+    if !combined.contains('*') {
+        return None;
+    }
+    let matches = expand_glob_pattern(&combined);
+    if matches.is_empty() {
+        return None;
+    }
+    Some(
+        matches
+            .into_iter()
+            .map(|m| WordNode {
+                segments: vec![Segment::Unquoted(m)],
+            })
+            .collect(),
+    )
+}
+
+fn expand_glob_pattern(pattern: &str) -> Vec<String> {
+    let is_absolute = Path::new(pattern).is_absolute();
+    let mut components: Vec<&str> = pattern.split('/').collect();
+    if is_absolute && components.first() == Some(&"") {
+        components.remove(0);
+    }
+
+    let mut paths = if is_absolute {
+        vec![PathBuf::from("/")]
+    } else {
+        vec![PathBuf::from(".")]
+    };
+
+    for comp in components {
+        if comp.is_empty() || comp == "." {
+            continue;
+        }
+        let has_wildcard = comp.contains('*');
+        let mut next_paths = Vec::new();
+
+        if has_wildcard {
+            for base in &paths {
+                if let Ok(entries) = fs::read_dir(base) {
+                    for entry in entries.flatten() {
+                        let name_os = entry.file_name();
+                        let name = match name_os.to_str() {
+                            Some(s) => s,
+                            None => continue,
+                        };
+                        if name.starts_with('.') && !comp.starts_with('.') {
+                            continue;
+                        }
+                        if wildcard_match(comp, name) {
+                            let mut next = base.clone();
+                            next.push(name);
+                            next_paths.push(next);
+                        }
+                    }
+                }
+            }
+        } else {
+            for base in &paths {
+                let mut next = base.clone();
+                next.push(comp);
+                if next.exists() {
+                    next_paths.push(next);
+                }
+            }
+        }
+
+        paths = next_paths;
+        if paths.is_empty() {
+            break;
+        }
+    }
+
+    if paths.is_empty() {
+        return Vec::new();
+    }
+
+    let mut results = Vec::new();
+    for path in paths {
+        let mut display = if is_absolute {
+            path.to_string_lossy().to_string()
+        } else if let Ok(stripped) = path.strip_prefix(".") {
+            let s = stripped.to_string_lossy().to_string();
+            if s.is_empty() {
+                String::from('.')
+            } else {
+                s
+            }
+        } else {
+            path.to_string_lossy().to_string()
+        };
+        if !is_absolute && display.starts_with("./") {
+            display = display[2..].to_string();
+        }
+        results.push(display);
+    }
+    results.sort();
+    results.dedup();
+    results
+}
+
+fn wildcard_match(pattern: &str, text: &str) -> bool {
+    let p_bytes = pattern.as_bytes();
+    let t_bytes = text.as_bytes();
+    let mut p = 0;
+    let mut t = 0;
+    let mut star_idx: Option<usize> = None;
+    let mut match_idx = 0;
+
+    while t < t_bytes.len() {
+        if p < p_bytes.len() && (p_bytes[p] == t_bytes[t]) {
+            p += 1;
+            t += 1;
+        } else if p < p_bytes.len() && p_bytes[p] == b'*' {
+            star_idx = Some(p);
+            match_idx = t;
+            p += 1;
+        } else if let Some(star_pos) = star_idx {
+            p = star_pos + 1;
+            match_idx += 1;
+            t = match_idx;
+        } else {
+            return false;
+        }
+    }
+
+    while p < p_bytes.len() && p_bytes[p] == b'*' {
+        p += 1;
+    }
+
+    p == p_bytes.len()
+}
+
+fn expand_glob_pattern(pattern: &str) gives Vec<String>? We'll add soon.

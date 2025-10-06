@@ -1,26 +1,26 @@
 use crate::input::key::{Key, Modifier};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum KeyFunction {
+pub(super) enum KeyFunction {
     Char(char),
     Ctrl(char),
-    PreCmd,     // 履歴: 前のコマンド（↑ / PageUp）
-    NextCmd,    // 履歴: 次のコマンド（↓ / PageDown）
-    Left,       // ←
-    Right,      // →
-    Tab,        // Tab
-    Home,       // Home
-    End,        // End
-    Enter,      // Enter / Return
-    BackSpace,  // Backspace
-    Delete,     // Delete
-    Clear,      // 画面クリア（既定: Ctrl-L）
-    DeleteWord, // 単語削除（既定: Alt-Backspace / Ctrl-W）
+    PreCmd,
+    NextCmd,
+    Left,
+    Right,
+    Tab,
+    Home,
+    End,
+    Enter,
+    BackSpace,
+    Delete,
+    Clear,
+    DeleteWord,
     Space,
 }
 
 impl Key {
-    pub fn function(&self) -> Option<KeyFunction> {
+    pub(super) fn edit_function(&self) -> Option<KeyFunction> {
         Some(match self {
             Key::Char(' ', Modifier { .. }) => KeyFunction::Space,
             Key::Char(
@@ -31,7 +31,6 @@ impl Key {
                     ..
                 },
             ) => KeyFunction::Char(*c),
-
             Key::Backspace(_) | Key::Char('h', Modifier { ctrl: true, .. }) => {
                 KeyFunction::BackSpace
             }
@@ -47,7 +46,6 @@ impl Key {
             Key::Home(_) => KeyFunction::Home,
             Key::End(_) => KeyFunction::End,
             Key::Delete(_) => KeyFunction::Delete,
-
             _ => return None,
         })
     }
