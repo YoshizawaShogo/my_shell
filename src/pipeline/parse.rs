@@ -75,7 +75,7 @@ pub fn parse(tokens: &[Token]) -> Result<Expr> {
 
 fn parse_expr(tokens: &[Token], mut i: usize) -> Result<(Expr, usize)> {
     let mut lhs = parse_pipe(tokens, &mut i)?;
-    while let Some(token) = maybe_get(tokens, &mut i) {
+    while let Some(token) = skip_delimiter_get(tokens, &mut i) {
         match token {
             Token::And => {
                 i += 1;
@@ -95,7 +95,7 @@ fn parse_expr(tokens: &[Token], mut i: usize) -> Result<(Expr, usize)> {
 
 fn parse_pipe(tokens: &[Token], i: &mut usize) -> Result<Expr> {
     let mut commands = vec![parse_command(tokens, i)?];
-    while let Some(token) = maybe_get(tokens, i) {
+    while let Some(token) = skip_delimiter_get(tokens, i) {
         if !matches!(token, Token::Pipe) {
             break;
         }
@@ -108,13 +108,15 @@ fn parse_pipe(tokens: &[Token], i: &mut usize) -> Result<Expr> {
 /// 1 トークン＝1 WordNode（クォート種別を Segment に落とす）
 fn parse_word_node(tokens: &[Token], i: &mut usize) -> Result<WordNode> {
     let mut node = WordNode::new();
-    match must_get(tokens, i)? {
-        Token::Word(s, QuoteKind::None) => node.segments.push(Segment::Unquoted(s.clone())),
-        Token::Word(s, QuoteKind::Single) => node.segments.push(Segment::SingleQuoted(s.clone())),
-        Token::Word(s, QuoteKind::Double) => node.segments.push(Segment::DoubleQuoted(s.clone())),
-        _ => unreachable!("parse_word_node called on non-word token"),
+    while let Some(token) = tokens.get(*i) {
+        *i += 1;
+        match token {
+            Token::Word(s, QuoteKind::None) => node.segments.push(Segment::Unquoted(s.clone())),
+            Token::Word(s, QuoteKind::Single) => node.segments.push(Segment::SingleQuoted(s.clone())),
+            Token::Word(s, QuoteKind::Double) => node.segments.push(Segment::DoubleQuoted(s.clone())),
+            _ => break,
+        }
     }
-    *i += 1;
     Ok(node)
 }
 
@@ -130,7 +132,7 @@ fn parse_command(tokens: &[Token], i: &mut usize) -> Result<CommandExpr> {
     let mut stderr = Redirection::Inherit;
 
     while *i < tokens.len() {
-        let Some(token) = maybe_get(tokens, i) else {
+        let Some(token) = skip_delimiter_get(tokens, i) else {
             break;
         };
         match token {
@@ -215,12 +217,12 @@ fn must_get<'a>(tokens: &'a [Token], i: &'a mut usize) -> Result<&'a Token> {
     }
 }
 
-fn maybe_get<'a>(tokens: &'a [Token], i: &'a mut usize) -> Option<&'a Token> {
+fn skip_delimiter_get<'a>(tokens: &'a [Token], i: &'a mut usize) -> Option<&'a Token> {
     match tokens.get(*i) {
         Some(x) => match x {
             Token::Delimiter => {
                 *i += 1;
-                maybe_get(tokens, i)
+                skip_delimiter_get(tokens, i)
             }
             x => Some(x),
         },
