@@ -7,9 +7,8 @@ pub enum Error {
     Io(io::Error),
     Fmt(fmt::Error),
     VarError(env::VarError),
-    NoExitCode,
-    ThreadPanic,
     NoChild,
+    StructureCollaps,
 }
 
 impl fmt::Display for Error {
@@ -18,9 +17,8 @@ impl fmt::Display for Error {
             Error::Io(e) => write!(f, "IO error: {e}"),
             Error::Fmt(e) => write!(f, "Format error: {e}"),
             Error::VarError(e) => write!(f, "Variable error: {e}"),
-            Error::NoExitCode => write!(f, "process terminated without an exit code"),
-            Error::ThreadPanic => write!(f, "thread panicked"),
             Error::NoChild => write!(f, "no child to wait on"),
+            Error::StructureCollaps => write!(f, "Failed to parse tokens"),
         }
     }
 }

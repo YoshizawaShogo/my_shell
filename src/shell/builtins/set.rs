@@ -1,10 +1,7 @@
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
 
-use crate::shell::{
-    Shell,
-    builtins::{Builtin, Io},
-};
+use super::{Builtin, BuiltinResult};
+use crate::shell::Shell;
 
 pub struct SetCmd;
 
@@ -13,26 +10,25 @@ impl Builtin for SetCmd {
         "set"
     }
 
-    fn run(&self, shell: &Arc<Mutex<Shell>>, argv: &[String], io: &mut Io) -> i32 {
-        let mut sh = shell.lock().unwrap();
-        set(argv, &mut sh.variables, io)
+    fn run(&self, shell: &mut Shell, argv: &[String]) -> BuiltinResult {
+        set(argv, &mut shell.variables)
     }
 }
 
-fn set(args: &[String], variables: &mut BTreeMap<String, String>, io: &mut Io) -> i32 {
+fn set(args: &[String], variables: &mut BTreeMap<String, String>) -> BuiltinResult {
     match args {
         [key, value] => {
             variables.insert(key.clone(), value.clone());
-            0
+            BuiltinResult {
+                stdout: String::new(),
+                stderr: String::new(),
+                code: 0,
+            }
         }
-        _ => {
-            let _ = write!(
-                io.stderr,
-                r#"Usage:
-  set <variable> <value>
-"#
-            );
-            1
-        }
+        _ => BuiltinResult {
+            stdout: String::new(),
+            stderr: String::from("Usage:\n  set <variable> <value>\n"),
+            code: 1,
+        },
     }
 }

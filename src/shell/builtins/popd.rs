@@ -1,10 +1,7 @@
-use std::sync::{Arc, Mutex};
-use std::{env, path::PathBuf};
+use std::env;
 
-use crate::shell::{
-    Shell,
-    builtins::{Builtin, Io},
-};
+use super::{Builtin, BuiltinResult};
+use crate::shell::Shell;
 
 pub struct PopdCmd;
 
@@ -13,50 +10,44 @@ impl Builtin for PopdCmd {
         "popd"
     }
 
-    // 他の builtin と同様に Arc<Mutex<Shell>> を受け取りに統一
-    fn run(&self, shell: &Arc<Mutex<Shell>>, argv: &[String], io: &mut Io) -> i32 {
-        popd_with_args(shell, argv, io)
+    fn run(&self, shell: &mut Shell, argv: &[String]) -> BuiltinResult {
+        popd_with_args(shell, argv)
     }
 }
 
-fn popd_with_args(shell: &Arc<Mutex<Shell>>, args: &[String], io: &mut Io) -> i32 {
+fn popd_with_args(shell: &mut Shell, args: &[String]) -> BuiltinResult {
     match args {
-        [] => popd(shell, io),
-        _ => {
-            let _ = write!(
-                io.stderr,
-                r#"Usage:
-  popd    # cd "previous directory"
-"#
-            );
-            1
-        }
+        [] => popd(shell),
+        _ => BuiltinResult {
+            stdout: String::new(),
+            stderr: String::from("Usage:\n  popd    # cd \"previous directory\"\n"),
+            code: 1,
+        },
     }
 }
 
-fn popd(shell: &Arc<Mutex<Shell>>, io: &mut Io) -> i32 {
-    // 1) まずトップ要素を“見る”だけ（失敗時に壊さないため）
-    let target: Option<PathBuf> = {
-        let sh = shell.lock().unwrap();
-        sh.dir_stack.last().cloned()
+fn popd(shell: &mut Shell) -> BuiltinResult {
+    let Some(dir) = shell.dir_stack.last().cloned() else {
+        return BuiltinResult {
+            stdout: String::new(),
+            stderr: String::from("popd: dir_stack is empty.\n"),
+            code: 1,
+        };
     };
 
-    let Some(dir) = target else {
-        let _ = writeln!(io.stderr, "popd: dir_stack is empty.");
-        return 1;
-    };
-
-    // 2) chdir をロック外で実施（ロックは短く）
     match env::set_current_dir(&dir) {
         Ok(()) => {
-            // 3) 成功したらポップ（ここで初めてスタックを更新）
-            let mut sh = shell.lock().unwrap();
-            let _ = sh.dir_stack.pop();
-            0
+            let _ = shell.dir_stack.pop();
+            BuiltinResult {
+                stdout: String::new(),
+                stderr: String::new(),
+                code: 0,
+            }
         }
-        Err(e) => {
-            let _ = writeln!(io.stderr, "popd: '{}': {}", dir.display(), e);
-            2
-        }
+        Err(e) => BuiltinResult {
+            stdout: String::new(),
+            stderr: format!("popd: '{}': {}\n", dir.display(), e),
+            code: 2,
+        },
     }
 }

@@ -1,16 +1,10 @@
+use super::{Builtin, BuiltinResult};
 use std::{
     fs::File,
     io::{BufRead, BufReader},
-    sync::{Arc, Mutex},
 };
 
-use crate::shell::{
-    Shell,
-    builtins::{Builtin, Io},
-    pipeline::{
-        execute::execute, parse::parse, pre_execute::expand_expr_with_shell, tokenize::tokenize,
-    },
-};
+use crate::{execute, parse, shell::Shell, tokenize};
 
 pub struct SourceCmd;
 
@@ -19,28 +13,31 @@ impl Builtin for SourceCmd {
         "source"
     }
 
-    /// ここで lock せず、Arc<Mutex<Shell>> をそのまま渡す
-    fn run(&self, shell: &Arc<Mutex<Shell>>, argv: &[String], io: &mut Io) -> i32 {
-        source_with_io(argv, shell, io)
+    fn run(&self, shell: &mut Shell, argv: &[String]) -> BuiltinResult {
+        source_with_io(argv, shell)
     }
 }
 
-/// Usage:
-///   source <path>
-pub fn source_with_io(args: &[String], shell: &Arc<Mutex<Shell>>, io: &mut Io) -> i32 {
+pub fn source_with_io(args: &[String], shell: &mut Shell) -> BuiltinResult {
     let path = match args {
         [path] => path,
         _ => {
-            let _ = write!(io.stderr, "Usage:\n  source <path>\n");
-            return 1;
+            return BuiltinResult {
+                stdout: String::new(),
+                stderr: String::from("Usage:\n  source <path>\n"),
+                code: 1,
+            };
         }
     };
 
     let file = match File::open(path) {
         Ok(f) => f,
         Err(e) => {
-            let _ = writeln!(io.stderr, "source: cannot open '{}': {}", path, e);
-            return 1;
+            return BuiltinResult {
+                stdout: String::new(),
+                stderr: format!("source: cannot open '{}': {}\n", path, e),
+                code: 1,
+            };
         }
     };
 
@@ -51,42 +48,48 @@ pub fn source_with_io(args: &[String], shell: &Arc<Mutex<Shell>>, io: &mut Io) -
         let line = match line_res {
             Ok(s) => s,
             Err(e) => {
-                let _ = writeln!(io.stderr, "source: read error: {}", e);
-                return 1;
+                return BuiltinResult {
+                    stdout: String::new(),
+                    stderr: format!("source: read error: {}\n", e),
+                    code: 1,
+                };
             }
         };
 
         // 空行・（任意）コメント行はスキップ
         let trimmed = line.trim();
-        if trimmed.is_empty() {
+        if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        // コメントを無視したい場合は有効化:
-        // if trimmed.starts_with('#') { continue; }
 
         // 1) tokenize
         let tokens = tokenize(trimmed);
 
-        // 3) parse
-        let Some((expr, _consumed)) = parse(&tokens) else {
-            // パース不能行はエラー扱いにするなら return 1;
-            // ここではスキップせずエラーを表示して中断する方針にします
-            let _ = writeln!(io.stderr, "source: parse error in line: {}", trimmed);
-            return 1;
+        // 2) parse
+        let Ok(expr) = parse(&tokens) else {
+            return BuiltinResult {
+                stdout: String::new(),
+                stderr: format!("source: parse error in line: {}\n", trimmed),
+                code: 1,
+            };
         };
 
-        // 4) pre_execute（変数展開）
-        let expanded = expand_expr_with_shell(&expr, shell);
-
         // 5) execute
-        match execute(&expanded, shell) {
+        match execute(&expr, shell) {
             Ok(code) => last_status = code,
             Err(e) => {
-                let _ = writeln!(io.stderr, "source: execute error: {:?}", e);
-                return 1;
+                return BuiltinResult {
+                    stdout: String::new(),
+                    stderr: format!("source: execute error: {:?}\n", e),
+                    code: 1,
+                };
             }
         }
     }
 
-    last_status
+    BuiltinResult {
+        stdout: String::new(),
+        stderr: String::new(),
+        code: last_status,
+    }
 }

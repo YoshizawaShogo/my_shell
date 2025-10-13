@@ -1,43 +1,40 @@
-use std::{
-    io::{Read, Write},
-    sync::{Arc, Mutex},
-};
-
 use crate::shell::Shell;
 
-pub mod abbr;
-pub mod alias;
-pub mod cd;
-pub mod exit;
-pub mod history;
-pub mod popd;
-pub mod set;
-pub mod setenv;
-pub mod source;
+mod abbr;
+mod alias;
+mod cd;
+mod exit;
+mod history;
+mod popd;
+mod set;
+mod setenv;
+mod source;
 
-pub trait Builtin: Sync {
-    fn name(&self) -> &'static str;
-    fn run(&self, shell: &Arc<Mutex<Shell>>, argv: &[String], io: &mut Io) -> i32;
+pub use source::source_with_io;
+
+pub struct BuiltinResult {
+    pub stdout: String,
+    pub stderr: String,
+    pub code: i32,
 }
 
-pub struct Io<'a> {
-    pub stdin: &'a mut dyn Read,
-    pub stdout: &'a mut dyn Write,
-    pub stderr: &'a mut dyn Write,
+pub trait Builtin {
+    fn name(&self) -> &'static str;
+    fn run(&self, shell: &mut Shell, argv: &[String]) -> BuiltinResult;
 }
 
 // すべての builtin を登録
 fn registry() -> &'static [&'static dyn Builtin] {
     &[
-        &crate::shell::builtins::abbr::AbbrCmd,
-        &crate::shell::builtins::alias::AliasCmd,
-        &crate::shell::builtins::cd::CdCmd,
-        &crate::shell::builtins::exit::ExitCmd,
-        &crate::shell::builtins::history::HistoryCmd,
-        &crate::shell::builtins::popd::PopdCmd,
-        &crate::shell::builtins::set::SetCmd,
-        &crate::shell::builtins::setenv::SetenvCmd,
-        &crate::shell::builtins::source::SourceCmd,
+        &abbr::AbbrCmd,
+        &alias::AliasCmd,
+        &cd::CdCmd,
+        &exit::ExitCmd,
+        &history::HistoryCmd,
+        &popd::PopdCmd,
+        &set::SetCmd,
+        &setenv::SetenvCmd,
+        &source::SourceCmd,
     ]
 }
 

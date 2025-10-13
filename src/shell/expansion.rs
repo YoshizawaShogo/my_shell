@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, io::Write};
 
-use crate::shell::tab_completion_mode::exe_list::ExeList;
+use super::exe_list::ExeList;
 
 #[derive(Clone)]
 pub struct Expansion {

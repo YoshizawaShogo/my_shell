@@ -1,14 +1,11 @@
 use libc::{FD_SET, FD_ZERO, fd_set, read, select, timeval};
 use std::cmp::Ordering;
 use std::io;
-use std::os::fd::RawFd;
-
-const STDIN_FD: RawFd = 0;
 
 /// 最初の1バイトを受け取った後、短いタイムアウトで連続バイトを吸い上げる
-pub fn drain_burst(first: u8, timeout_ms: i64) -> io::Result<Vec<u8>> {
+pub(super) fn drain_burst(first: u8, timeout_ms: i64) -> io::Result<Vec<u8>> {
     let mut buf = vec![first];
-    let fd = STDIN_FD;
+    let fd = 0;
     let nfds = fd + 1;
     let t_ms = timeout_ms.max(0);
 

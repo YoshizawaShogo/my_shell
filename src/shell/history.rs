@@ -5,26 +5,32 @@ use std::{
     path::Path,
 };
 
+use crate::error::Result;
+
 pub struct History {
     log_path: String,
     capacity: usize,
     pub log: VecDeque<(String, String)>, // abs-path, command
     hash: BTreeSet<(String, String)>,
-    index: usize,
+    pub index: usize,
     buffer: String,
 }
 
 impl History {
-    pub fn new(capacity: usize) -> Self {
-        let history_path = env::var("MY_SHELL_HISTORY").unwrap_or_else(|_| {
+    pub(super) fn load() -> Self {
+        let path = env::var("MY_SHELL_HISTORY").unwrap_or_else(|_| {
             env::var("HOME").expect("HOME not set") + "/" + ".my_shell_history"
         });
-        if !Path::new(&history_path).is_file() {
-            File::create(&history_path).unwrap();
+        let capacity: usize = env::var("MY_SHELL_HISTORY_CAPACITY")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(1000);
+        if !Path::new(&path).is_file() {
+            File::create(&path).unwrap();
         }
         let mut command_log = VecDeque::new();
         let mut hash = BTreeSet::new();
-        for line in fs::read_to_string(&history_path).unwrap().split("\n") {
+        for line in fs::read_to_string(&path).unwrap().split("\n") {
             if !line.contains(",") {
                 continue;
             }
@@ -35,7 +41,7 @@ impl History {
             command_log.push_back((left, right));
         }
         Self {
-            log_path: history_path,
+            log_path: path,
             capacity,
             log: command_log,
             hash,
@@ -43,7 +49,11 @@ impl History {
             buffer: String::new(),
         }
     }
-    pub fn push(&mut self, pwd: String, cmd: String) {
+    pub fn push(&mut self, cmd: String) {
+        let pwd = match std::env::current_dir() {
+            Ok(p) => p.to_string_lossy().into_owned(),
+            Err(_) => return,
+        };
         let value = (pwd, cmd);
         if self.hash.contains(&value) {
             let i = self.log.iter().position(|x| x == &value).unwrap();
@@ -81,7 +91,7 @@ impl History {
             self.log[self.log.len() - self.index].clone().1
         }
     }
-    pub fn store(&self) {
+    pub(super) fn save(&self) -> Result<()> {
         let log_str = self
             .log
             .iter()
@@ -89,26 +99,35 @@ impl History {
             .map(|(pwd, cmd)| pwd + "," + &cmd)
             .collect::<Vec<_>>()
             .join("\n");
-        fs::write(&self.log_path, log_str).unwrap();
+        fs::write(&self.log_path, log_str)?;
+        Ok(())
     }
-    pub fn find_history_rev(&self, current: &str) -> Option<&String> {
-        let pwd = env::current_dir().unwrap().to_string_lossy().into_owned();
-        let first_candidate = self
-            .log
-            .iter()
-            .filter(|x| x.0 == pwd)
-            .map(|x| &x.1)
-            .rev()
-            .find(|h| h.starts_with(current));
-
-        if first_candidate.is_some() {
-            return first_candidate;
+    pub(super) fn get_ghost(&self, buffer: &str) -> String {
+        if buffer.is_empty() {
+            return "".into();
         }
+        let pwd = std::env::current_dir()
+            .ok()
+            .map(|p| p.to_string_lossy().into_owned());
+        let mut fallback = "";
 
-        self.log
-            .iter()
-            .map(|x| &x.1)
-            .rev()
-            .find(|h| h.starts_with(current))
+        for (dir, cmd) in self.log.iter().rev() {
+            if !cmd.starts_with(buffer) {
+                continue;
+            }
+
+            // pwdが取れていて、かつ一致したら即リターン
+            if let Some(ref p) = pwd
+                && dir == p
+            {
+                fallback = cmd;
+                break;
+            }
+            // 全体の最新候補（最初に見つかったもの）を保存
+            if fallback.is_empty() {
+                fallback = cmd;
+            }
+        }
+        fallback.strip_prefix(buffer).unwrap_or("").to_string()
     }
 }

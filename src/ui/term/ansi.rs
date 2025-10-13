@@ -1,4 +1,5 @@
-use crate::output::term_size::read_terminal_size;
+#![allow(unused)]
+use super::term_size::read_terminal_size;
 
 pub fn strip_ansi(s: &str) -> String {
     use regex::Regex;
@@ -88,7 +89,7 @@ pub fn cursor_to_line_start() -> String {
 #[inline]
 pub fn clear() -> String {
     let height: u32 = read_terminal_size().height.into();
-    format!("{}{}", scroll_up(height), cursor_to_0_0())
+    format!("{}{}", "\n".repeat(height as usize), cursor_to_0_0())
 }
 
 #[inline]

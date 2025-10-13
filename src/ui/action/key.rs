@@ -1,5 +1,5 @@
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
-pub struct Modifier {
+pub(super) struct Modifier {
     pub ctrl: bool,
     pub shift: bool,
     pub alt: bool,
@@ -25,7 +25,7 @@ impl Modifier {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Key {
+pub(super) enum Key {
     Char(char, Modifier),
 
     Enter(Modifier),
@@ -50,7 +50,7 @@ pub enum Key {
     Unknown,
 }
 
-pub fn parse_keys(bytes: &[u8]) -> Vec<Key> {
+pub(super) fn parse_keys(bytes: &[u8]) -> Vec<Key> {
     let mut out = Vec::new();
     let mut i = 0;
 
@@ -242,18 +242,17 @@ fn parse_one_key(bytes: &[u8]) -> (Key, usize) {
 
     // UTF-8 多バイトを 1 文字だけ読む
     if b >= 0x80 {
-        if let Ok(s) = std::str::from_utf8(bytes) {
-            if let Some(ch) = s.chars().next() {
-                return (Key::Char(ch, Modifier::NONE), ch.len_utf8());
-            }
+        if let Ok(s) = std::str::from_utf8(bytes)
+            && let Some(ch) = s.chars().next()
+        {
+            return (Key::Char(ch, Modifier::NONE), ch.len_utf8());
         }
         for len in 2..=4 {
-            if bytes.len() >= len {
-                if let Ok(s) = std::str::from_utf8(&bytes[..len]) {
-                    if let Some(ch) = s.chars().next() {
-                        return (Key::Char(ch, Modifier::NONE), ch.len_utf8());
-                    }
-                }
+            if bytes.len() >= len
+                && let Ok(s) = std::str::from_utf8(&bytes[..len])
+                && let Some(ch) = s.chars().next()
+            {
+                return (Key::Char(ch, Modifier::NONE), ch.len_utf8());
             }
         }
     }

@@ -1,9 +1,6 @@
-use crate::shell::{
-    Shell,
-    builtins::{Builtin, Io},
-    history::History,
-};
-use std::sync::{Arc, Mutex};
+use super::Shell;
+use super::{Builtin, BuiltinResult};
+use crate::shell::history::History;
 
 pub struct HistoryCmd;
 
@@ -12,36 +9,39 @@ impl Builtin for HistoryCmd {
         "history"
     }
 
-    fn run(&self, shell: &Arc<Mutex<Shell>>, argv: &[String], io: &mut Io) -> i32 {
-        let sh = shell.lock().unwrap();
-        show_history_with_args(&sh.history, argv, io)
+    fn run(&self, shell: &mut Shell, argv: &[String]) -> BuiltinResult {
+        show_history_with_args(&shell.history, argv)
     }
 }
 
-fn show_history_with_args(history: &History, args: &[String], io: &mut Io) -> i32 {
+fn show_history_with_args(history: &History, args: &[String]) -> BuiltinResult {
     match args {
-        [] => show_history(history, io),
-        _ => {
-            let _ = write!(
-                io.stderr,
-                r#"Usage:
-  history    # Show history
-"#
-            );
-            1
-        }
+        [] => show_history(history),
+        _ => BuiltinResult {
+            stdout: String::new(),
+            stderr: String::from("Usage:\n  history    # Show history\n"),
+            code: 1,
+        },
     }
 }
 
-fn show_history(history: &History, io: &mut Io) -> i32 {
+fn show_history(history: &History) -> BuiltinResult {
     if history.log.is_empty() {
-        let _ = writeln!(io.stdout, "(no history)");
-        return 0;
+        return BuiltinResult {
+            stdout: String::from("(no history)\n"),
+            stderr: String::new(),
+            code: 0,
+        };
     }
 
+    let mut stdout = String::new();
     for (idx, entry) in &history.log {
-        let _ = writeln!(io.stdout, "{idx}: {entry}");
+        stdout.push_str(&format!("{idx}: {entry}\n"));
     }
 
-    0
+    BuiltinResult {
+        stdout,
+        stderr: String::new(),
+        code: 0,
+    }
 }

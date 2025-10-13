@@ -1,25 +1,22 @@
-use std::{collections::BTreeMap, path::PathBuf};
-
-use crate::shell::{
-    completion::{CompletionFilter, CompletionStore, commands_from_expr, default_completion_path},
-    expansion::{Abbrs, Aliases},
-    history::History,
-    tab_completion_mode::exe_list::ExeList,
-};
-
 pub mod builtins;
-pub mod completion;
-pub mod expansion;
+mod completion;
+mod exe_list;
+mod expansion;
 pub mod history;
-pub mod line_edit_mode;
-pub mod pipeline;
-pub mod tab_completion_mode;
+
+use std::{collections::BTreeMap, env, path::PathBuf};
+
+use crate::shell::expansion::{Abbrs, Aliases};
+
+use completion::CompletionStore;
+use exe_list::ExeList;
+use history::History;
 
 pub struct Shell {
     pub history: History,
     pub abbrs: Abbrs,
     pub aliases: Aliases,
-    pub exe_list: ExeList,
+    exe_list: ExeList,
     pub completion: CompletionStore,
     pub variables: BTreeMap<String, String>,
     pub dir_stack: Vec<PathBuf>,
@@ -28,41 +25,60 @@ pub struct Shell {
 
 impl Shell {
     pub fn new() -> Self {
-        let completion_path = default_completion_path();
-        let mut shell = Self {
-            history: History::new(1000),
+        init_env();
+        let mut s = Self {
+            history: History::load(),
             abbrs: Abbrs::new("abbr".into()),
             aliases: Aliases::new("aliases".into()),
             exe_list: ExeList::new(),
-            completion: CompletionStore::load(completion_path),
+            completion: CompletionStore::load(),
             variables: BTreeMap::new(),
             dir_stack: Vec::new(),
             exit_requested: false,
         };
-        for name in crate::shell::builtins::name_list() {
-            shell.exe_list.insert(name.to_string());
-        }
-        let mut cd_filter = CompletionFilter::default();
-        cd_filter.type_filter = Some('d');
-        shell.completion.ensure_command_filter("cd", cd_filter);
-        shell
+        let rc_path = get_rc_path();
+        s.source(rc_path);
+        s
     }
-    pub fn start(&mut self) {}
-
-    pub fn record_completion_from_expr(&mut self, expr: &crate::shell::pipeline::parse::Expr) {
-        for tokens in commands_from_expr(expr) {
-            self.completion.record_tokens(&tokens);
-        }
+    fn source(&mut self, path: String) -> i32 {
+        let ret = crate::shell::builtins::source_with_io(&[path], self);
+        print!("{}", ret.stdout);
+        ret.code
     }
-
-    pub fn request_exit(&mut self) {
+    fn request_exit(&mut self) {
         self.exit_requested = true;
+    }
+    pub fn get_ghost(&self, buffer: &str) -> String {
+        self.history.get_ghost(buffer)
+    }
+}
+
+fn get_rc_path() -> String {
+    env::var("MY_SHELL_RC")
+        .unwrap_or_else(|_| env::var("HOME").expect("HOME not set") + "/" + ".my_shell_rc")
+}
+
+fn init_env() {
+    let shlvl = env::var("SHLVL")
+        .ok()
+        .and_then(|s| s.parse::<i32>().ok())
+        .unwrap_or(0)
+        + 1;
+    unsafe {
+        env::set_var("SHLVL", shlvl.to_string());
+    }
+    unsafe {
+        libc::signal(libc::SIGINT, libc::SIG_IGN);
+        libc::signal(libc::SIGQUIT, libc::SIG_IGN);
+        libc::signal(libc::SIGTSTP, libc::SIG_IGN);
+        libc::signal(libc::SIGTTIN, libc::SIG_IGN);
+        libc::signal(libc::SIGTTOU, libc::SIG_IGN);
     }
 }
 
 impl Drop for Shell {
     fn drop(&mut self) {
-        self.history.store();
+        let _ = self.history.save();
         let _ = self.completion.save();
     }
 }

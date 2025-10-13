@@ -1,9 +1,5 @@
-use std::sync::{Arc, Mutex};
-
-use crate::shell::{
-    Shell,
-    builtins::{Builtin, Io},
-};
+use super::{Builtin, BuiltinResult};
+use crate::shell::Shell;
 
 pub struct ExitCmd;
 
@@ -12,21 +8,25 @@ impl Builtin for ExitCmd {
         "exit"
     }
 
-    fn run(&self, shell: &Arc<Mutex<Shell>>, argv: &[String], io: &mut Io) -> i32 {
-        let mut sh = shell.lock().unwrap();
-        exit_with_args(&mut sh, argv, io)
+    fn run(&self, shell: &mut Shell, argv: &[String]) -> BuiltinResult {
+        exit_with_args(shell, argv)
     }
 }
 
-fn exit_with_args(shell: &mut Shell, args: &[String], io: &mut Io) -> i32 {
+fn exit_with_args(shell: &mut Shell, args: &[String]) -> BuiltinResult {
     match args {
         [] => {
             shell.request_exit();
-            0
+            BuiltinResult {
+                stdout: String::new(),
+                stderr: String::new(),
+                code: 0,
+            }
         }
-        _ => {
-            let _ = writeln!(io.stderr, "Usage:\n  exit    # no args");
-            1
-        }
+        _ => BuiltinResult {
+            stdout: String::new(),
+            stderr: String::from("Usage:\n  exit    # no args\n"),
+            code: 1,
+        },
     }
 }

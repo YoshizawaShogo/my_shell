@@ -1,8 +1,5 @@
-use crate::shell::{
-    Shell,
-    builtins::{Builtin, Io},
-};
-use std::sync::{Arc, Mutex};
+use super::{Builtin, BuiltinResult};
+use crate::shell::Shell;
 
 pub struct SetenvCmd;
 
@@ -11,27 +8,27 @@ impl Builtin for SetenvCmd {
         "setenv"
     }
 
-    fn run(&self, _shell: &Arc<Mutex<Shell>>, argv: &[String], io: &mut Io) -> i32 {
-        set_env(argv, io)
+    fn run(&self, _shell: &mut Shell, argv: &[String]) -> BuiltinResult {
+        set_env(argv)
     }
 }
 
-fn set_env(args: &[String], io: &mut Io) -> i32 {
+fn set_env(args: &[String]) -> BuiltinResult {
     match args {
         [key, value] => {
             unsafe {
                 std::env::set_var(key, value);
             }
-            0
+            BuiltinResult {
+                stdout: String::new(),
+                stderr: String::new(),
+                code: 0,
+            }
         }
-        _ => {
-            let _ = write!(
-                io.stderr,
-                r#"Usage:
-  setenv <variable> <value>
-"#
-            );
-            1
-        }
+        _ => BuiltinResult {
+            stdout: String::new(),
+            stderr: String::from("Usage:\n  setenv <variable> <value>\n"),
+            code: 1,
+        },
     }
 }

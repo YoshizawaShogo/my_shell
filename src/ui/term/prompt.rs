@@ -4,11 +4,9 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::output::{
-    ansi::{
-        color::{Color, fg},
-        util::strip_ansi,
-    },
+use super::{
+    ansi::{newline, strip_ansi},
+    color::{Color, fg},
     term_size::read_terminal_size,
 };
 
@@ -39,9 +37,10 @@ pub fn get_prompt() -> String {
     let spaces = " ".repeat(space_count);
 
     format!(
-        "{left}{spaces}{gray}{clock}{reset}\r\n",
+        "{left}{spaces}{gray}{clock}{reset}{newline}",
         gray = fg(Color::BrightBlack),
-        reset = fg(Color::Reset)
+        reset = fg(Color::Reset),
+        newline = newline(),
     )
 }
 
