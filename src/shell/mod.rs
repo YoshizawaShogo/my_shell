@@ -31,7 +31,7 @@ impl Shell {
             abbrs: Abbrs::new("abbr".into()),
             aliases: Aliases::new("aliases".into()),
             exe_list: ExeList::new(),
-            completion: CompletionStore::load(),
+            completion: CompletionStore::load().unwrap(),
             variables: BTreeMap::new(),
             dir_stack: Vec::new(),
             exit_requested: false,

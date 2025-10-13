@@ -77,7 +77,7 @@ fn main() -> Result<()> {
                     }
                 }
                 Action::Tab => {
-                    unimplemented!()
+                    shell.completion.complete(&mut buffer, &mut cursor);
                 }
                 Action::Home => cursor = 0,
                 Action::End => cursor = buffer.len(),
