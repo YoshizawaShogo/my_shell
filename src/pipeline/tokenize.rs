@@ -167,7 +167,6 @@ pub fn tokenize(input: &str) -> Vec<Token> {
         tokens.push(Token::Word(current, QuoteKind::None));
     }
 
-    dbg!(&tokens);
     tokens
 }
 
