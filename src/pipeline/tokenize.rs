@@ -147,8 +147,10 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                 }
                 in_variable = true;
             }
-            '~' => if current.is_empty() {
-                tokens.push(Token::Word("~".to_string(), QuoteKind::Tilde));
+            '~' => {
+                if current.is_empty() {
+                    tokens.push(Token::Word("~".to_string(), QuoteKind::Tilde));
+                }
             }
             // 演算子（最長一致）
             _ => {
@@ -168,7 +170,11 @@ pub fn tokenize(input: &str) -> Vec<Token> {
     }
 
     if !current.is_empty() {
-        tokens.push(Token::Word(current, QuoteKind::None));
+        if in_variable {
+            tokens.push(Token::Word(current, QuoteKind::Variable));
+        } else {
+            tokens.push(Token::Word(current, QuoteKind::None));
+        }
     }
 
     tokens

@@ -2,7 +2,10 @@ use std::env;
 
 use super::tokenize::{QuoteKind, Token};
 
-use crate::{error::{Error, Result}, shell::Shell};
+use crate::{
+    error::{Error, Result},
+    shell::Shell,
+};
 
 #[derive(Debug, Clone)]
 pub enum Segment {
@@ -84,7 +87,6 @@ pub enum Redirection {
 
 pub fn parse(tokens: &[Token]) -> Result<Expr> {
     let expr = parse_expr(tokens, 0)?.0;
-    dbg!(&expr);
     Ok(expr)
 }
 
@@ -134,7 +136,9 @@ fn parse_word_node(tokens: &[Token], i: &mut usize) -> Result<WordNode> {
                 node.segments.push(Segment::DoubleQuoted(s.clone()))
             }
             Token::Word(s, QuoteKind::Variable) => node.segments.push(Segment::Variable(s.clone())),
-            Token::Word(_s, QuoteKind::Tilde) => node.segments.push(Segment::Variable("HOME".to_string())),
+            Token::Word(_s, QuoteKind::Tilde) => {
+                node.segments.push(Segment::Variable("HOME".to_string()))
+            }
             _ => break,
         }
     }
