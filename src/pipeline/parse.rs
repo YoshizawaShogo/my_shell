@@ -1,6 +1,8 @@
+use std::env;
+
 use super::tokenize::{QuoteKind, Token};
 
-use crate::error::{Error, Result};
+use crate::{error::{Error, Result}, shell::Shell};
 
 #[derive(Debug, Clone)]
 pub enum Segment {
@@ -22,16 +24,22 @@ impl WordNode {
         }
     }
 
-    pub fn concat_text(&self) -> String {
+    pub fn concat_text(&self, shell: &Shell) -> String {
         let mut s = String::new();
         for seg in &self.segments {
             match seg {
                 Segment::Unquoted(t) | Segment::DoubleQuoted(t) | Segment::SingleQuoted(t) => {
-                    s.push_str(t)
+                    s.push_str(t);
                 }
                 Segment::Variable(t) => {
-                    s.push('$');
-                    s.push_str(t);
+                    if let Some(val) = shell.variables.get(t) {
+                        s.push_str(val);
+                        continue;
+                    }
+                    if let Ok(val) = env::var(t) {
+                        s.push_str(&val);
+                        continue;
+                    }
                 }
             }
         }
@@ -75,7 +83,9 @@ pub enum Redirection {
 }
 
 pub fn parse(tokens: &[Token]) -> Result<Expr> {
-    Ok(parse_expr(tokens, 0)?.0)
+    let expr = parse_expr(tokens, 0)?.0;
+    dbg!(&expr);
+    Ok(expr)
 }
 
 fn parse_expr(tokens: &[Token], mut i: usize) -> Result<(Expr, usize)> {
@@ -124,6 +134,7 @@ fn parse_word_node(tokens: &[Token], i: &mut usize) -> Result<WordNode> {
                 node.segments.push(Segment::DoubleQuoted(s.clone()))
             }
             Token::Word(s, QuoteKind::Variable) => node.segments.push(Segment::Variable(s.clone())),
+            Token::Word(_s, QuoteKind::Tilde) => node.segments.push(Segment::Variable("HOME".to_string())),
             _ => break,
         }
     }

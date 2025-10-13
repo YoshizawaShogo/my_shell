@@ -101,8 +101,8 @@ fn execute_pipeline(commands: &[CommandExpr], shell: &mut Shell) -> Result<i32> 
         let is_last = i == commands.len() - 1;
 
         // ▼ WordNode → String（ここで確定）
-        let cmd_name_str = &cmd.cmd_name.concat_text();
-        let args_str: Vec<String> = cmd.args.iter().map(|x| x.concat_text()).collect();
+        let cmd_name_str = &cmd.cmd_name.concat_text(&shell);
+        let args_str: Vec<String> = cmd.args.iter().map(|x| x.concat_text(&shell)).collect();
         let mut pending_stdin_from_builtin: Option<String> = None;
 
         // ===== ビルトインか？ =====
@@ -112,7 +112,7 @@ fn execute_pipeline(commands: &[CommandExpr], shell: &mut Shell) -> Result<i32> 
             let mut piped = String::new();
             match &cmd.stdout {
                 Redirection::File { path, append } => {
-                    let p = path.concat_text();
+                    let p = path.concat_text(&shell);
                     let mut f = open_redirect_file(&p, *append)?;
                     f.write_all(ret.stdout.as_bytes())?;
                 }
@@ -125,7 +125,7 @@ fn execute_pipeline(commands: &[CommandExpr], shell: &mut Shell) -> Result<i32> 
             }
             match &cmd.stderr {
                 Redirection::File { path, append } => {
-                    let p = path.concat_text();
+                    let p = path.concat_text(&shell);
                     let mut f = open_redirect_file(&p, *append)?;
                     f.write_all(ret.stderr.as_bytes())?;
                 }
@@ -170,7 +170,7 @@ fn execute_pipeline(commands: &[CommandExpr], shell: &mut Shell) -> Result<i32> 
                 c.stdout(stdio_inherit());
             }
             Redirection::File { path, append } => {
-                let p = path.concat_text();
+                let p = path.concat_text(&shell);
                 let f = open_redirect_file(&p, *append)?;
                 c.stdout(Stdio::from(f));
             }
@@ -185,7 +185,7 @@ fn execute_pipeline(commands: &[CommandExpr], shell: &mut Shell) -> Result<i32> 
                 c.stderr(stdio_inherit());
             }
             Redirection::File { path, append } => {
-                let p = path.concat_text();
+                let p = path.concat_text(&shell);
                 let f = open_redirect_file(&p, *append)?;
                 c.stderr(Stdio::from(f));
             }

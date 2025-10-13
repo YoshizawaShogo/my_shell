@@ -23,6 +23,7 @@ pub enum QuoteKind {
     Single,
     Double,
     Variable,
+    Tilde,
 }
 
 pub fn tokenize(input: &str) -> Vec<Token> {
@@ -146,6 +147,9 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                 }
                 in_variable = true;
             }
+            '~' => if current.is_empty() {
+                tokens.push(Token::Word("~".to_string(), QuoteKind::Tilde));
+            }
             // 演算子（最長一致）
             _ => {
                 if let Some((tok, len)) = match_operator(ch, &chars) {
@@ -202,6 +206,7 @@ pub fn tokens_to_string(tokens: &[Token]) -> String {
             Token::Word(w, QuoteKind::Single) => quote_single(w),
             Token::Word(w, QuoteKind::Double) => quote_double(w),
             Token::Word(w, QuoteKind::Variable) => "$".to_string() + w,
+            Token::Word(w, QuoteKind::Tilde) => w.to_string(),
             Token::And => "&&".to_string(),
             Token::Or => "||".to_string(),
             Token::RedirectOut => ">".to_string(),
