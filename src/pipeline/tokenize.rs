@@ -14,6 +14,7 @@ pub enum Token {
     Pipe,               // |
     PipeErr,            // 2|
     PipeBoth,           // &|
+    Delimiter,          // 区切り文字(token間のspaceを明示)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,6 +98,7 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                 if !current.is_empty() {
                     tokens.push(Token::Word(mem::take(&mut current), QuoteKind::None));
                 }
+                tokens.push(Token::Delimiter);
             }
             // クォート開始
             '\'' => {
@@ -185,8 +187,9 @@ pub fn tokens_to_string(tokens: &[Token]) -> String {
             Token::Pipe => "|".to_string(),
             Token::PipeErr => "2|".to_string(),
             Token::PipeBoth => "&|".to_string(),
+            Token::Delimiter => " ".to_string(),
         };
         parts.push(s);
     }
-    parts.join(" ")
+    parts.join("")
 }

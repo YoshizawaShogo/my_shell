@@ -75,8 +75,8 @@ pub fn parse(tokens: &[Token]) -> Result<Expr> {
 
 fn parse_expr(tokens: &[Token], mut i: usize) -> Result<(Expr, usize)> {
     let mut lhs = parse_pipe(tokens, &mut i)?;
-    while i < tokens.len() {
-        match &tokens[i] {
+    while let Some(token) = maybe_get(tokens, &mut i) {
+        match token {
             Token::And => {
                 i += 1;
                 let rhs = parse_pipe(tokens, &mut i)?;
@@ -95,7 +95,10 @@ fn parse_expr(tokens: &[Token], mut i: usize) -> Result<(Expr, usize)> {
 
 fn parse_pipe(tokens: &[Token], i: &mut usize) -> Result<Expr> {
     let mut commands = vec![parse_command(tokens, i)?];
-    while *i < tokens.len() && matches!(maybe_get(tokens, *i)?, Token::Pipe) {
+    while let Some(token) = maybe_get(tokens, i) {
+        if !matches!(token, Token::Pipe) {
+            break;
+        }
         *i += 1;
         commands.push(parse_command(tokens, i)?);
     }
@@ -105,7 +108,7 @@ fn parse_pipe(tokens: &[Token], i: &mut usize) -> Result<Expr> {
 /// 1 トークン＝1 WordNode（クォート種別を Segment に落とす）
 fn parse_word_node(tokens: &[Token], i: &mut usize) -> Result<WordNode> {
     let mut node = WordNode::new();
-    match maybe_get(tokens, *i)? {
+    match must_get(tokens, i)? {
         Token::Word(s, QuoteKind::None) => node.segments.push(Segment::Unquoted(s.clone())),
         Token::Word(s, QuoteKind::Single) => node.segments.push(Segment::SingleQuoted(s.clone())),
         Token::Word(s, QuoteKind::Double) => node.segments.push(Segment::DoubleQuoted(s.clone())),
@@ -117,7 +120,7 @@ fn parse_word_node(tokens: &[Token], i: &mut usize) -> Result<WordNode> {
 
 fn parse_command(tokens: &[Token], i: &mut usize) -> Result<CommandExpr> {
     // 先頭はコマンド名
-    let cmd_name = match maybe_get(tokens, *i)? {
+    let cmd_name = match must_get(tokens, i)? {
         Token::Word(_, _) => parse_word_node(tokens, i)?,
         _ => unreachable!("command must start with a word"),
     };
@@ -127,21 +130,24 @@ fn parse_command(tokens: &[Token], i: &mut usize) -> Result<CommandExpr> {
     let mut stderr = Redirection::Inherit;
 
     while *i < tokens.len() {
-        match maybe_get(tokens, *i)? {
+        let Some(token) = maybe_get(tokens, i) else {
+            break;
+        };
+        match token {
             // > / >>  (stdout)
             Token::RedirectOut | Token::RedirectAppend => {
-                let append = matches!(maybe_get(tokens, *i)?, Token::RedirectAppend);
+                let append = matches!(must_get(tokens, i)?, Token::RedirectAppend);
                 *i += 1;
-                if matches!(maybe_get(tokens, *i)?, Token::Word(_, _)) {
+                if matches!(must_get(tokens, i)?, Token::Word(_, _)) {
                     let path = parse_word_node(tokens, i)?;
                     stdout = Redirection::File { path, append };
                 }
             }
             // &> / &>>  (stdout, stderr 両方)
             Token::RedirectBoth | Token::RedirectBothAppend => {
-                let append = matches!(maybe_get(tokens, *i)?, Token::RedirectBothAppend);
+                let append = matches!(must_get(tokens, i)?, Token::RedirectBothAppend);
                 *i += 1;
-                if matches!(maybe_get(tokens, *i)?, Token::Word(_, _)) {
+                if matches!(must_get(tokens, i)?, Token::Word(_, _)) {
                     let path = parse_word_node(tokens, i)?;
                     stdout = Redirection::File {
                         path: path.clone(),
@@ -152,9 +158,9 @@ fn parse_command(tokens: &[Token], i: &mut usize) -> Result<CommandExpr> {
             }
             // 2> / 2>>  (stderr)
             Token::RedirectErr | Token::RedirectErrAppend => {
-                let append = matches!(maybe_get(tokens, *i)?, Token::RedirectErrAppend);
+                let append = matches!(must_get(tokens, i)?, Token::RedirectErrAppend);
                 *i += 1;
-                if matches!(maybe_get(tokens, *i)?, Token::Word(_, _)) {
+                if matches!(must_get(tokens, i)?, Token::Word(_, _)) {
                     let path = parse_word_node(tokens, i)?;
                     stderr = Redirection::File { path, append };
                 }
@@ -181,6 +187,10 @@ fn parse_command(tokens: &[Token], i: &mut usize) -> Result<CommandExpr> {
                 let arg = parse_word_node(tokens, i)?;
                 args.push(arg);
             }
+            Token::Delimiter => {
+                *i += 1;
+                continue;
+            }
         }
     }
 
@@ -192,9 +202,28 @@ fn parse_command(tokens: &[Token], i: &mut usize) -> Result<CommandExpr> {
     })
 }
 
-fn maybe_get(tokens: &[Token], index: usize) -> Result<&Token> {
-    match tokens.get(index) {
-        Some(x) => Ok(x),
+fn must_get<'a>(tokens: &'a [Token], i: &'a mut usize) -> Result<&'a Token> {
+    match tokens.get(*i) {
+        Some(x) => match x {
+            Token::Delimiter => {
+                *i += 1;
+                must_get(tokens, i)
+            }
+            x => Ok(x),
+        },
         None => Err(Error::StructureCollaps),
+    }
+}
+
+fn maybe_get<'a>(tokens: &'a [Token], i: &'a mut usize) -> Option<&'a Token> {
+    match tokens.get(*i) {
+        Some(x) => match x {
+            Token::Delimiter => {
+                *i += 1;
+                maybe_get(tokens, i)
+            }
+            x => Some(x),
+        },
+        None => None,
     }
 }

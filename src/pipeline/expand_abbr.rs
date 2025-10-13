@@ -35,6 +35,7 @@ pub(super) fn is_command_position(tokens: &[Token], idx_of_current_word: usize) 
         | Token::And        // &&
         | Token::Or         // ||
         => true,
+        Token::Delimiter => is_command_position(tokens, idx_of_current_word-1),
         _ => false,
     }
 }
