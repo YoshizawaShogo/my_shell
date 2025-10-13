@@ -22,6 +22,7 @@ pub enum QuoteKind {
     None,
     Single,
     Double,
+    Variable,
 }
 
 pub fn tokenize(input: &str) -> Vec<Token> {
@@ -57,10 +58,24 @@ pub fn tokenize(input: &str) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut current = String::new();
     let mut chars = input.chars().peekable();
+    let mut in_variable = false;
     let mut in_single = false;
     let mut in_double = false;
 
     while let Some(ch) = chars.next() {
+        if in_variable {
+            match ch {
+                'a'..'z' | 'A'..'Z' | '_' => {
+                    current.push(ch);
+                    continue;
+                }
+                _ => {
+                    in_variable = false;
+                    tokens.push(Token::Word(mem::take(&mut current), QuoteKind::Variable));
+                }
+            }
+        }
+
         if in_single {
             match ch {
                 '\'' => {
@@ -85,6 +100,10 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                     } else {
                         current.push('\\');
                     }
+                }
+                '$' => {
+                    in_variable = true;
+                    tokens.push(Token::Word(mem::take(&mut current), QuoteKind::Double));
                 }
                 _ => current.push(ch),
             }
@@ -121,6 +140,12 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                     current.push('\\');
                 }
             }
+            '$' => {
+                if !current.is_empty() {
+                    tokens.push(Token::Word(mem::take(&mut current), QuoteKind::None));
+                }
+                in_variable = true;
+            }
             // 演算子（最長一致）
             _ => {
                 if let Some((tok, len)) = match_operator(ch, &chars) {
@@ -142,6 +167,7 @@ pub fn tokenize(input: &str) -> Vec<Token> {
         tokens.push(Token::Word(current, QuoteKind::None));
     }
 
+    dbg!(&tokens);
     tokens
 }
 
@@ -176,6 +202,7 @@ pub fn tokens_to_string(tokens: &[Token]) -> String {
             Token::Word(w, QuoteKind::None) => w.clone(),
             Token::Word(w, QuoteKind::Single) => quote_single(w),
             Token::Word(w, QuoteKind::Double) => quote_double(w),
+            Token::Word(w, QuoteKind::Variable) => "$".to_string() + w,
             Token::And => "&&".to_string(),
             Token::Or => "||".to_string(),
             Token::RedirectOut => ">".to_string(),

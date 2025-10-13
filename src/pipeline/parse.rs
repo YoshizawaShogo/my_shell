@@ -7,6 +7,7 @@ pub enum Segment {
     Unquoted(String),
     DoubleQuoted(String),
     SingleQuoted(String),
+    Variable(String),
 }
 
 #[derive(Debug, Clone)]
@@ -27,6 +28,10 @@ impl WordNode {
             match seg {
                 Segment::Unquoted(t) | Segment::DoubleQuoted(t) | Segment::SingleQuoted(t) => {
                     s.push_str(t)
+                }
+                Segment::Variable(t) => {
+                    s.push('$');
+                    s.push_str(t);
                 }
             }
         }
@@ -112,8 +117,13 @@ fn parse_word_node(tokens: &[Token], i: &mut usize) -> Result<WordNode> {
         *i += 1;
         match token {
             Token::Word(s, QuoteKind::None) => node.segments.push(Segment::Unquoted(s.clone())),
-            Token::Word(s, QuoteKind::Single) => node.segments.push(Segment::SingleQuoted(s.clone())),
-            Token::Word(s, QuoteKind::Double) => node.segments.push(Segment::DoubleQuoted(s.clone())),
+            Token::Word(s, QuoteKind::Single) => {
+                node.segments.push(Segment::SingleQuoted(s.clone()))
+            }
+            Token::Word(s, QuoteKind::Double) => {
+                node.segments.push(Segment::DoubleQuoted(s.clone()))
+            }
+            Token::Word(s, QuoteKind::Variable) => node.segments.push(Segment::Variable(s.clone())),
             _ => break,
         }
     }
