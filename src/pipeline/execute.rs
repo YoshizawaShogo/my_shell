@@ -2,9 +2,10 @@
 // 依存: std + libc（nix等は未使用）
 
 use std::{
-    fs::{File, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::{self, Write},
     os::unix::process::CommandExt,
+    path::Path,
     process::{Child, ChildStdout, Command, ExitStatus, Stdio},
 };
 
@@ -102,7 +103,11 @@ fn execute_pipeline(commands: &[CommandExpr], shell: &mut Shell) -> Result<i32> 
 
         // ▼ WordNode → String（ここで確定）
         let cmd_name_str = &cmd.cmd_name.concat_text(&shell);
-        let args_str: Vec<String> = cmd.args.iter().map(|x| x.concat_text(&shell)).collect();
+        let mut args_str = vec![];
+        for arg in cmd.args.iter() {
+            let w = arg.concat_text(shell);
+            args_str.append(&mut expand_glob(w));
+        }
         let mut pending_stdin_from_builtin: Option<String> = None;
 
         // ===== ビルトインか？ =====
@@ -226,4 +231,62 @@ fn execute_pipeline(commands: &[CommandExpr], shell: &mut Shell) -> Result<i32> 
 
     let codes = wait_all(&mut children)?;
     Ok(*codes.last().unwrap_or(&0))
+}
+
+fn expand_glob(word: String) -> Vec<String> {
+    let path = Path::new(&word);
+    let (dir, file) = match (path.parent(), path.file_name()) {
+        (Some(d), Some(f)) => (d, f),
+        _ => return vec![word],
+    };
+    let file_str = file.to_string_lossy();
+    let dir = if dir == Path::new("") {
+        Path::new("./")
+    } else {
+        dir
+    };
+
+    if !file.to_string_lossy().to_string().contains("*") {
+        return vec![word];
+    }
+
+    let Ok(entries) = fs::read_dir(dir) else {
+        return vec![word];
+    };
+
+    // グロブパターンを簡易的に正規表現に変換
+    let pattern = "^".to_string() + &regex_escape(&file_str).replace("*", ".*") + "$";
+
+    let re = match regex::Regex::new(&pattern) {
+        Ok(r) => r,
+        Err(_) => return vec![word],
+    };
+
+    // マッチするファイル名を収集
+    let mut matches = Vec::new();
+    for entry in entries.flatten() {
+        if let Some(name) = entry.file_name().to_str() {
+            if re.is_match(name) && !name.starts_with('.') {
+                matches.push(entry.path().display().to_string());
+            }
+        }
+    }
+
+    // マッチしたものをスペースで結合して返す
+    if matches.is_empty() {
+        vec![word]
+    } else {
+        matches
+    }
+}
+
+fn regex_escape(s: &str) -> String {
+    s.chars()
+        .flat_map(|c| match c {
+            '.' | '+' | '(' | ')' | '|' | '[' | ']' | '{' | '}' | '^' | '$' | '\\' | '?' => {
+                vec!['\\', c]
+            }
+            _ => vec![c],
+        })
+        .collect()
 }

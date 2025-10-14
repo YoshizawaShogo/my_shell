@@ -1,6 +1,5 @@
 /// 補完に必要な入力を整理。
 /// cmd名、sub_cmd名、現在のポジション(cmd, sub_cmd, option, arg)、現在の入力情報
-
 use std::{
     collections::{BTreeMap, BTreeSet},
     env, fs, io,
@@ -62,8 +61,12 @@ impl CompletionStore {
 
         for raw in content.lines() {
             let line = raw.trim();
-            if line.is_empty() { continue; }
-            if line.starts_with("//") { continue; } // コメント行を許容
+            if line.is_empty() {
+                continue;
+            }
+            if line.starts_with("//") {
+                continue;
+            } // コメント行を許容
 
             if let Some(cmd) = line.strip_prefix("## ") {
                 let cmd = cmd.trim().to_string();
@@ -90,7 +93,9 @@ impl CompletionStore {
             // オプション行（ダブルクォートで囲まれた語を全部拾う）
             if line.starts_with('"') {
                 let opts = extract_quoted_items(line);
-                if opts.is_empty() { continue; }
+                if opts.is_empty() {
+                    continue;
+                }
 
                 if let Some(cmd) = current_cmd.clone() {
                     if let Some(sub) = current_sub.clone() {
@@ -101,10 +106,14 @@ impl CompletionStore {
                             .subcommands
                             .entry(sub)
                             .or_default();
-                        for o in opts { subentry.options.insert(o); }
+                        for o in opts {
+                            subentry.options.insert(o);
+                        }
                     } else {
                         let centry = self.data.entry(cmd).or_default();
-                        for o in opts { centry.options.insert(o); }
+                        for o in opts {
+                            centry.options.insert(o);
+                        }
                     }
                 }
             }
