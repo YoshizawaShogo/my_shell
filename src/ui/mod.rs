@@ -113,9 +113,9 @@ pub fn print_candidates(candidates: &Vec<String>, cursor: usize, index: Option<u
             let space = o_max_lens[j] - (j + 1 == line.len()) as usize - w.len();
 
             let w = if fixed_len < w.len(){
-                &format!("{gray}{}{reset}{}{gray}{}{reset}", &w[..fixed_len], &w[fixed_len..=fixed_len], &w[fixed_len+1..])
+                &format!("{gray}{}{reset}{}{reset}{}{reset}", &w[..fixed_len], &w[fixed_len..=fixed_len], &w[fixed_len+1..])
             } else {
-                &format!("{gray}{w}{reset}")
+                &format!("{}{w}{reset}", fg(Color::BrightMagenta))
             };
             buffer += &format!("{w}{}", " ".repeat(space));
         }
