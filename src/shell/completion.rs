@@ -9,8 +9,8 @@ use crate::{error::Result, shell::Shell};
 
 #[derive(Default, Clone, Debug)]
 pub struct CompletionStore {
-    data: BTreeMap<String, CommandEntry>,
-    path: String,
+    pub data: BTreeMap<String, CommandEntry>,
+    pub path: String,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -29,10 +29,6 @@ pub struct SubcommandEntry {
 /// # subcmd
 /// "--option" or "-o"
 impl CompletionStore {
-    pub fn complete(&self, buffer: &mut String, cursor: &mut usize) {
-        let target = &buffer[..*cursor];
-        let const_tail = &buffer[*cursor..];
-    }
     pub(super) fn load() -> Result<Self> {
         let path = env::var("MY_SHELL_COMPLETION").unwrap_or_else(|_| {
             env::var("HOME").expect("HOME not set") + "/" + ".my_shell_completion"

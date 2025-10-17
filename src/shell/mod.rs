@@ -1,5 +1,5 @@
 pub mod builtins;
-mod completion;
+pub mod completion;
 mod exe_list;
 mod expansion;
 pub mod history;
