@@ -379,7 +379,11 @@ fn complete_cd(
         *cursor += adder.len();
         return (vec![], 0);
     } else {
-        return (candidates, file.len());
+        let common = common_prefix(&candidates);
+        let adder = common[file.len()..common.len()].to_string();
+        buffer.insert_str(*cursor, &adder);
+        *cursor += adder.len();
+        return (candidates, common.len());
     }
 }
 
@@ -407,4 +411,29 @@ pub fn completion_split(input: Option<&String>) -> (String, String) {
             return (dir, file);
         }
     };
+}
+
+fn common_prefix(strings: &[String]) -> String {
+    if strings.is_empty() {
+        return String::new();
+    }
+
+    // 最初の要素を基準に比較
+    let mut prefix = strings[0].clone();
+
+    for s in &strings[1..] {
+        let mut i = 0;
+        for (a, b) in prefix.chars().zip(s.chars()) {
+            if a != b {
+                break;
+            }
+            i += a.len_utf8();
+        }
+        prefix.truncate(i);
+        if prefix.is_empty() {
+            break;
+        }
+    }
+
+    prefix
 }

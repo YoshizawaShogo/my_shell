@@ -8,7 +8,6 @@ use crate::ui::term::ansi;
 use crate::ui::term::ansi::cursor_right;
 use crate::ui::term::ansi::cursor_to_line_start;
 use crate::ui::term::ansi::cursor_up;
-use crate::ui::term::ansi::delete_after;
 use crate::ui::term::ansi::delete_buffer;
 use crate::ui::term::ansi::newline;
 use crate::ui::term::ansi::strip_ansi;
@@ -112,7 +111,12 @@ pub fn print_candidates(candidates: &Vec<String>, cursor: usize, index: Option<u
             let reset = fg(Color::Reset);
             let w = &line[j];
             let space = o_max_lens[j] - (j + 1 == line.len()) as usize - w.len();
-            let w = &format!("{gray}{}{reset}{}{gray}{}{reset}", &w[..fixed_len], &w[fixed_len..=fixed_len], &w[fixed_len+1..]);
+
+            let w = if fixed_len < w.len(){
+                &format!("{gray}{}{reset}{}{gray}{}{reset}", &w[..fixed_len], &w[fixed_len..=fixed_len], &w[fixed_len+1..])
+            } else {
+                &format!("{gray}{w}{reset}")
+            };
             buffer += &format!("{w}{}", " ".repeat(space));
         }
         if i + 1 != o_height {
