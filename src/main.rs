@@ -334,13 +334,12 @@ fn complete(buffer: &mut String, cursor: &mut usize, shell: &mut Shell) -> (Vec<
             let cmd_completion = shell.completion.data.get(&cmd);
             let subcmd_completion = cmd_completion.map(|x| &x.subcommands);
             if subcmd_completion.is_some() {
-                let subcmd_list: Vec<String> = subcmd_completion.unwrap().keys().cloned().collect();
-                let common = common_prefix(subcmd_list.iter().cloned());
-                let adder = common[cmd.len()..common.len()].to_string();
-                buffer.insert_str(*cursor, &adder);
-                *cursor += adder.len();
-                return (subcmd_list, common.len());
+                let src = subcmd_completion.unwrap().keys().cloned().collect();
+                return complete_parts(src, "", buffer, cursor, "");
             } else {
+                let src = get_files(Path::new("."));
+                dbg!(&src);
+                return complete_parts(src, "", buffer, cursor, "");
             }
         }
         (1, false) => {
@@ -382,7 +381,7 @@ pub fn get_files(path: &Path) -> Vec<String> {
     list_with(
         path,
         |_| true, // ここでは全件（必要なら is_file 判定に変更）
-        |e| e.path().to_string_lossy().into_owned(),
+        |e| e.file_name().to_string_lossy().into_owned(),
     )
 }
 
@@ -402,6 +401,9 @@ pub fn complete_parts(
     base_for_slash: &str,
 ) -> (Vec<String>, usize) {
     let candidates: Vec<String> = src.into_iter().filter(|x| x.starts_with(prefix)).collect();
+    if candidates.is_empty() {
+        return (vec![], 0);
+    }
     let common = common_prefix(candidates.iter().cloned());
     let adder = common[prefix.len()..].to_string();
     buffer.insert_str(*cursor, &adder);
