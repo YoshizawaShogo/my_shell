@@ -11,6 +11,7 @@ use crate::ui::term::ansi::cursor_up;
 use crate::ui::term::ansi::delete_buffer;
 use crate::ui::term::ansi::newline;
 use crate::ui::term::color::Color;
+use crate::ui::term::color::bg;
 use crate::ui::term::color::fg;
 pub(super) use action::Action;
 pub(super) use action::Mode;
@@ -32,6 +33,14 @@ pub fn print_newline() {
 
 pub fn print_prompt() {
     write!(stdout().lock(), "{}", term::prompt::get_prompt()).unwrap();
+}
+
+pub fn delete_after() {
+    write!(stdout().lock(), "{}", ansi::delete_after()).unwrap();
+}
+
+pub fn print_hat_c() {
+    write!(stdout().lock(), "{}^C{}", fg(Color::BrightBlack), fg(Color::Reset)).unwrap();
 }
 
 pub fn print_command_line(buffer: &str, cursor: usize, ghost: &str) {
@@ -67,19 +76,19 @@ pub fn print_candidates(
     cursor: usize,
     index: Option<usize>,
     fixed_len: usize,
-) {
+) -> usize {
     if candidates.len() <= 1 {
-        return;
+        return 0;
     }
     let size = read_terminal_size();
     let (term_height, term_width) = (size.height as usize, size.width as usize);
 
-    let mut o = 1;
+    let mut o_width = 1;
     let mut o_max_lens = vec![candidates.iter().map(|line| line.len()).max().unwrap()];
     let mut o_height = candidates.len();
-    let mut x = term_width / 2;
-    while o + 1 < x {
-        let m = (o + x) / 2;
+    let mut x_width = term_width / 2;
+    while o_width + 1 < x_width {
+        let m = (o_width + x_width) / 2;
         let mut max_lens = vec![0; m];
         let chunks = candidates.chunks(m);
         let height = chunks.len();
@@ -92,21 +101,21 @@ pub fn print_candidates(
         }
         let width = max_lens.iter().sum::<usize>() - 1;
         if width <= term_width {
-            o = m;
+            o_width = m;
             o_max_lens = max_lens;
             o_height = height;
         } else {
-            x = m;
+            x_width = m;
         }
     }
 
     if o_height > term_height {
         let buffer = "Too many candidates, can't output";
         print_buffer_and_back(buffer, cursor);
-        return;
+        return 0;
     }
 
-    let mut chunks = candidates.chunks(o);
+    let mut chunks = candidates.chunks(o_width);
     let mut buffer = "".to_string();
     for i in 0..o_height {
         let line = chunks.next().unwrap();
@@ -116,7 +125,13 @@ pub fn print_candidates(
             let w = &line[j];
             let space = o_max_lens[j] - (j + 1 == line.len()) as usize - w.len();
 
-            let w = if fixed_len < w.len() {
+            let w = if Some(i * o_width + j) == index {
+                &format!(
+                    "{}{}{w}{reset}",
+                    fg(Color::BrightWhite),
+                    bg(Color::BrightBlack)
+                )
+            } else if fixed_len < w.len() {
                 &format!(
                     "{gray}{}{reset}{}{reset}{}{reset}",
                     &w[..fixed_len],
@@ -134,7 +149,7 @@ pub fn print_candidates(
     }
 
     print_buffer_and_back(&buffer, cursor);
-    return;
+    return o_width;
 }
 
 fn print_buffer_and_back(buffer: &str, cursor: usize) {
@@ -145,3 +160,4 @@ fn print_buffer_and_back(buffer: &str, cursor: usize) {
     let right = cursor_right((cursor % width) as u32);
     write!(stdout().lock(), "{newline}{buffer}{up}{left_end}{right}").unwrap();
 }
+

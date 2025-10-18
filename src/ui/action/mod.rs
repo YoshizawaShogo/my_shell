@@ -76,7 +76,12 @@ struct CompletionKeymap;
 impl Keymap for CompletionKeymap {
     fn map(&self, key: Key) -> Action {
         match key {
-            _ => unimplemented!(),
+            Key::ArrowLeft(_) => Action::Left,
+            Key::ArrowRight(_) | Key::Tab(_) => Action::Right,
+            Key::ArrowUp(_) => Action::Up,
+            Key::ArrowDown(_) => Action::Down,
+            Key::Char('c', Modifier { ctrl: true, .. }) => Action::Char('c'),
+            _ => Action::None,
         }
     }
 }

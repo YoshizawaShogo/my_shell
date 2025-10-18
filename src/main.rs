@@ -16,9 +16,7 @@ use ui::{Action, Mode};
 use crate::{
     pipeline::{execute, expand_aliases, parse, tokenize, tokens_to_string},
     ui::{
-        clean_term, delete_printing, flush, init, print_candidates, print_command_line,
-        print_newline, print_prompt, read_terminal_size, set_origin_term, set_raw_term,
-        wait_actions,
+        clean_term, delete_after, delete_printing, flush, init, print_candidates, print_command_line, print_hat_c, print_newline, print_prompt, read_terminal_size, set_origin_term, set_raw_term, wait_actions
     },
 };
 
@@ -35,9 +33,10 @@ fn main() -> Result<()> {
     'finish: loop {
         delete_printing(cursor);
         print_command_line(&buffer, cursor, &shell.get_ghost(&buffer));
-        print_candidates(&candidates, cursor, None, completion_fixed_len);
+        if pre_action == Action::Tab {
+            print_candidates(&candidates, cursor, None, completion_fixed_len);
+        }
         flush();
-        candidates = vec![];
         let Ok(actions) = wait_actions(&Mode::LineEdit, 20) else {
             continue;
         };
@@ -54,6 +53,7 @@ fn main() -> Result<()> {
                 }
                 Action::Ctrl('c') => {
                     if !buffer.is_empty() {
+                        print_hat_c();
                         print_newline();
                         print_prompt();
                     }
@@ -90,7 +90,8 @@ fn main() -> Result<()> {
                 }
                 Action::Tab => {
                     if pre_action == Action::Tab && candidates.len() >= 2 {
-                        // completion_mode();
+                        complete_mode(&mut buffer, &mut cursor, &candidates, completion_fixed_len);
+                        candidates = vec![];
                     } else {
                         (candidates, completion_fixed_len) =
                             complete(&mut buffer, &mut cursor, &mut shell);
@@ -193,106 +194,71 @@ fn expand_abbr(buffer: &mut String, cursor: &mut usize, shell: &Shell) -> bool {
     }
 }
 
-// fn complete_mode(buffer: &mut String, cursor: &mut usize, shell: &Shell) {
-//     let mut candidates = vec![];
-//     let mut index = None;
-//     'finish: loop {
-//         delete_printing(*cursor);
-//         print_command_line(buffer, *cursor, &shell.get_ghost(&buffer));
-//         print_candidates(&candidates, *cursor, index);
-//         flush();
-//         let Ok(actions) = wait_actions(&Mode::Completion, 20) else {
-//             continue;
-//         };
-//         for action in actions {
-//             match action {
-//                 Action::Char(c) => {
-//                     buffer.insert(*cursor, c);
-//                     *cursor += 1;
-//                 }
-//                 Action::Space => {
-//                     expand_abbr(&mut buffer, &mut cursor, &shell);
-//                     buffer.insert(*cursor, ' ');
-//                     *cursor += 1;
-//                 }
-//                 Action::Ctrl('c') => {
-//                     if !buffer.is_empty() {
-//                         print_newline();
-//                         print_prompt();
-//                     }
-//                     shell.history.index = 0;
-//                     buffer.clear();
-//                     *cursor = 0;
-//                     return;
-//                 }
-//                 Action::Up => {
-//                     let width = read_terminal_size().width as usize;
-//                     index = Some(match index {
-//                         Some(i) if i >= width => i - width,
-//                         Some(i) => i,
-//                         None => candidates.len().saturating_sub(1),
-//                     });
-//                 }
-//                 Action::Down => {
-//                     let width = read_terminal_size().width as usize;
-//                     index = Some(match index {
-//                         Some(i) if i + width < candidates.len() => i + width,
-//                         Some(i) => i,
-//                         None => candidates.len().saturating_sub(1),
-//                     });
-//                 }
-//                 Action::NextCmd => {
-//                     buffer = shell.history.next();
-//                     cursor = buffer.len();
-//                 }
-//                 Action::Left => {
-//                     cursor = cursor.saturating_sub(1);
-//                 }
-//                 Action::Right => {
-//                     if cursor < buffer.len() {
-//                         cursor += 1;
-//                     } else {
-//                         buffer += &shell.get_ghost(&buffer);
-//                         cursor = buffer.len();
-//                     }
-//                 }
-//                 Action::Tab => {
-//                     complete(&mut buffer, &mut cursor, &shell);
-//                 }
-//                 Action::Home => cursor = 0,
-//                 Action::End => cursor = buffer.len(),
-//                 Action::Enter => {
-//                     let pre_cursor = cursor;
-//                     expand_abbr(&mut buffer, &mut cursor, &shell);
-//                     delete_printing(pre_cursor);
-//                     print_command_line(&buffer, cursor, "");
-//                     if buffer.is_empty() {
-//                         print_prompt();
-//                     } else {
-//                         run_pipeline(&mut shell, &mut buffer, &mut cursor)
-//                     }
-//                 }
-//                 Action::BackSpace => {
-//                     if cursor > 0 {
-//                         buffer.remove(cursor - 1);
-//                         cursor -= 1;
-//                     }
-//                 }
-//                 Action::Delete => {
-//                     if cursor < buffer.len() {
-//                         buffer.remove(cursor);
-//                     }
-//                 }
-//                 Action::Clear => {
-//                     clean_term();
-//                     print_prompt();
-//                 }
-//                 Action::DeleteWord => delete_word(&mut buffer, &mut cursor),
-//                 _ => {}
-//             }
-//         }
-//     }
-// }
+fn complete_mode(
+    buffer: &mut String,
+    cursor: &mut usize,
+    candidates: &Vec<String>,
+    fixed_len: usize,
+) {
+    let mut index = 0;
+    'finish: loop {
+        delete_printing(*cursor);
+        let adder = &candidates[index][fixed_len..];
+        let tmp_buffer = &(buffer.clone() + adder);
+        let tmp_cursor = *cursor + adder.len();
+        print_command_line(tmp_buffer, tmp_cursor, "");
+        let width = print_candidates(&candidates, tmp_cursor, Some(index), fixed_len);
+        flush();
+        let Ok(actions) = wait_actions(&Mode::Completion, 20) else {
+            continue;
+        };
+        for action in actions {
+            match action {
+                Action::Up => {
+                    if index > width {
+                        index -= width;
+                    }
+                }
+                Action::Down => {
+                    if index + width < candidates.len() {
+                        index += width;
+                    }
+                }
+                Action::Left => {
+                    if index == 0 {
+                        index = candidates.len() - 1;
+                    } else {
+                        index -= 1;
+                    }
+                }
+                Action::Right => {
+                    if index + 1 == candidates.len() {
+                        index = 0;
+                    } else {
+                        index += 1;
+                    }
+                }
+                Action::Char('c') => {
+                    print_hat_c();
+                    print_newline();
+                    print_prompt();
+                    delete_after();
+                    buffer.clear();
+                    *cursor = 0;
+                    return;
+                }
+                _ => break 'finish,
+            }
+        }
+    }
+    let adder = &candidates[index][fixed_len..];
+    *buffer += adder;
+    *cursor += adder.len();
+    if !buffer.ends_with("/") {
+        buffer.insert(*cursor, ' ');
+        *cursor += 1;
+    }
+}
 
 fn complete(buffer: &mut String, cursor: &mut usize, shell: &mut Shell) -> (Vec<String>, usize) {
     let last_is_space = buffer[..*cursor].ends_with(' ');
@@ -311,85 +277,123 @@ fn complete(buffer: &mut String, cursor: &mut usize, shell: &mut Shell) -> (Vec<
         return complete_cd(buffer, cursor, &args, last_is_space);
     }
 
+    let cmd_completion = shell.completion.data.get(&cmd);
+    let subcmd_completion = cmd_completion.map(|x| &x.subcommands);
+    let is_option = args.last().is_some_and(|x| x.starts_with("-"));
+
     // cmd [sub] [file|option]* しか考慮しない。
-    match (args.len(), last_is_space) {
-        (0, false) => {
+    match (args.len(), last_is_space, subcmd_completion, is_option) {
+        (0, false, ..) => {
             // 現在、cmdを書いている途中。
             // /を含んでいる場合はfile補完
             // そうでなければ、cmdやaliasなどを補完
             if cmd.contains("/") {
                 let (dir, file) = completion_split(&cmd);
-                let src = get_exes(Path::new(&dir));
-                return complete_parts(src, &file, buffer, cursor, &cmd);
+                let src = get_exes(&dir);
+                return complete_parts(src, &file, buffer, cursor);
             } else {
                 let src = shell.exe_list.command_candidates(&cmd);
-                return complete_parts(src, &cmd, buffer, cursor, &cmd);
+                return complete_parts(src, &cmd, buffer, cursor);
             }
         }
-        (0, true) => {
+        (0, true, Some(sub_cmp), _) => {
             // 現在、cmdをちょうど書き終えたところ。
             // subcmdかfileかオプションを書き始めるところ。
             // subがあればsub
-            // そうでなければ、file
-            let cmd_completion = shell.completion.data.get(&cmd);
-            let subcmd_completion = cmd_completion.map(|x| &x.subcommands);
-            if subcmd_completion.is_some() {
-                let src = subcmd_completion.unwrap().keys().cloned().collect();
-                return complete_parts(src, "", buffer, cursor, "");
-            } else {
-                let src = get_files(Path::new("."));
-                dbg!(&src);
-                return complete_parts(src, "", buffer, cursor, "");
-            }
+            let src = subcmd_completion.unwrap().keys().cloned().collect();
+            return complete_parts(src, "", buffer, cursor);
         }
-        (1, false) => {
+        (0, true, None, _) => {
+            // そうでなければ、file
+            let src = get_files(".");
+            return complete_parts(src, "", buffer, cursor);
+        }
+        (1, false, _, true) => {
             // 一つ目の引数を書いている途中
             // -から始まっているとoption補完
-            // subがあればsub
-            // そうでなければ、file
         }
-        (_, true) => {
+        (1, false, Some(sub_cmp), false) => {
+            // subがあればsub
+        }
+        (1, false, None, false) => {
+            // そうでなければ、file
+            let last_arg = args.last().unwrap();
+            let (dir, file) = completion_split(&last_arg);
+            let src = get_files(&dir);
+            return complete_parts(src, &file, buffer, cursor);
+        }
+        (_, true, _, _) => {
             // 一つ目の引数を書き終えたところ。
             // file補完一択
+            let src = get_files(".");
+            return complete_parts(src, "", buffer, cursor);
         }
-        (_, false) => {
+        (_, false, Some(sub_cmp), true) => {
             // -から始まっていると、option補完
             // 引数1がサブコマンドであれば、option補完内容が変わるので注意。
+        }
+        (_, false, None, true) => {
+            // -から始まっていると、option補完
+        }
+        (_, false, _, false) => {
             // それ以外はfile補完
+            let last_arg = args.last().unwrap();
+            let (dir, file) = completion_split(&last_arg);
+            let src = get_files(&dir);
+            dbg!(&file);
+            return complete_parts(src, &file, buffer, cursor);
         }
     };
     return (vec![], 0);
 }
 
-fn list_with<F, M>(path: &Path, filter: F, map: M) -> Vec<String>
+fn list_with<F>(path: &str, filter: F) -> Vec<String>
 where
     F: Fn(&fs::DirEntry) -> bool,
-    M: Fn(fs::DirEntry) -> String,
 {
     let mut v: Vec<_> = fs::read_dir(path)
-        .ok() // Err を無視して Option に変換
-        .into_iter() // Option<ReadDir> → Iterator
-        .flat_map(|it| it.flatten()) // 失敗した DirEntry を無視
+        .ok()
+        .into_iter()
+        .flat_map(|it| it.flatten())
         .filter(|e| filter(e))
-        .map(map)
+        .map(|e| {
+            let mut name = e.file_name().to_string_lossy().into_owned();
+            if let Ok(ft) = fs::metadata(Path::new(path).join(&name)) {
+                if ft.is_dir() && !name.ends_with('/') {
+                    name.push('/');
+                }
+            }
+            name
+        })
         .collect();
     v.sort_unstable();
     v
 }
 
-pub fn get_files(path: &Path) -> Vec<String> {
+pub fn get_files(path: &str) -> Vec<String> {
     list_with(
         path,
         |_| true, // ここでは全件（必要なら is_file 判定に変更）
-        |e| e.file_name().to_string_lossy().into_owned(),
     )
 }
 
-pub fn get_dirs(path: &Path) -> Vec<String> {
+pub fn get_dirs(path: &str) -> Vec<String> {
     list_with(
         path,
         |e| e.file_type().map(|t| t.is_dir()).unwrap_or(false),
-        |e| e.file_name().to_string_lossy().into_owned(),
+    )
+}
+
+use std::os::unix::fs::PermissionsExt;
+pub fn get_exes(path: &str) -> Vec<String> {
+    list_with(
+        path,
+        |e| {
+            e.metadata()
+                .ok()
+                .map(|m| m.permissions().mode() & 0o111 != 0)
+                .unwrap_or(false)
+        },
     )
 }
 
@@ -398,7 +402,6 @@ pub fn complete_parts(
     prefix: &str,
     buffer: &mut String,
     cursor: &mut usize,
-    base_for_slash: &str,
 ) -> (Vec<String>, usize) {
     let candidates: Vec<String> = src.into_iter().filter(|x| x.starts_with(prefix)).collect();
     if candidates.is_empty() {
@@ -409,27 +412,14 @@ pub fn complete_parts(
     buffer.insert_str(*cursor, &adder);
     *cursor += adder.len();
 
-    let new = base_for_slash.to_string() + &adder;
-    if candidates.len() == 1 && Path::new(&new).is_dir() {
-        buffer.insert(*cursor, '/');
-        *cursor += 1;
+    if candidates.len() == 1 {
+        if !buffer.ends_with("/") {
+            buffer.insert(*cursor, ' ');
+            *cursor += 1;
+        }
     }
-    
-    (candidates, common.len())
-}
 
-use std::os::unix::fs::PermissionsExt;
-pub fn get_exes(path: &Path) -> Vec<String> {
-    list_with(
-        path,
-        |e| {
-            e.metadata()
-                .ok()
-                .map(|m| m.permissions().mode() & 0o111 != 0)
-                .unwrap_or(false)
-        },
-        |e| e.file_name().to_string_lossy().into_owned(),
-    )
+    (candidates, common.len())
 }
 
 fn complete_cd(
@@ -443,30 +433,31 @@ fn complete_cd(
     }
     let last_word = args.last().cloned().unwrap_or_default();
     let (dir, file) = completion_split(&last_word);
-    let src = get_dirs(Path::new(&dir));
-    return complete_parts(src, &file, buffer, cursor, &last_word);
+    let src = get_dirs(&dir);
+    return complete_parts(src, &file, buffer, cursor);
 }
 
-pub fn completion_split(input: &str) -> (String, String) {
+fn completion_split(input: &str) -> (String, String) {
     match input.rfind(MAIN_SEPARATOR) {
-        Some(pos) if pos == 0 => {
-            return ("/".to_string(), input[1..].to_string());
-        }
+        Some(pos) if pos == 0 => ("/".to_string(), input[1..].to_string()),
         Some(pos) => {
-            let mut dir = input[..pos].to_string();
+            let dir = &input[..pos];
             let file = input[pos + 1..].to_string();
-            if dir.starts_with("/") || dir.starts_with(".") {
-                return (dir, file);
-            }
-            dir = "./".to_string() + &dir;
-            return (dir, file);
+
+            let dir = match dir {
+                "." => "./".to_string(),
+                _ if dir.starts_with('/') || dir.starts_with('.') => dir.to_string(),
+                _ => format!("./{dir}"),
+            };
+
+            (dir, file)
         }
         None => {
             let dir = "./".to_string();
             let file = input.to_string();
-            return (dir, file);
+            (dir, file)
         }
-    };
+    }
 }
 
 fn common_prefix<I>(mut strings: I) -> String
