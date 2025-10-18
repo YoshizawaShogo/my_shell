@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, env, fs::read_dir, os::unix::fs::PermissionsExt
 
 use crate::shell::builtins;
 
-pub(super) struct ExeList {
+pub struct ExeList {
     path_entries: BTreeSet<String>,  // commands on PATH
     extra_entries: BTreeSet<String>, // builtin, alias, abbr
     pre_path: String,
@@ -25,7 +25,7 @@ impl ExeList {
         self.extra_entries.insert(executable);
     }
 
-    pub(super) fn command_candidates(&mut self, prefix: &str) -> Vec<String> {
+    pub fn command_candidates(&mut self, prefix: &str) -> Vec<String> {
         self.refresh_path_entries();
         let mut combined = BTreeSet::new();
         combined.extend(self.path_entries.iter().cloned());

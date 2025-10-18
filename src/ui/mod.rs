@@ -10,7 +10,6 @@ use crate::ui::term::ansi::cursor_to_line_start;
 use crate::ui::term::ansi::cursor_up;
 use crate::ui::term::ansi::delete_buffer;
 use crate::ui::term::ansi::newline;
-use crate::ui::term::ansi::strip_ansi;
 use crate::ui::term::color::Color;
 use crate::ui::term::color::fg;
 pub(super) use action::Action;
@@ -63,8 +62,13 @@ pub fn delete_printing(cursor: usize) {
     write!(stdout().lock(), "{}", delete_buffer(cursor)).unwrap();
 }
 
-pub fn print_candidates(candidates: &Vec<String>, cursor: usize, index: Option<usize>, fixed_len: usize) {
-    if candidates.len() == 0 {
+pub fn print_candidates(
+    candidates: &Vec<String>,
+    cursor: usize,
+    index: Option<usize>,
+    fixed_len: usize,
+) {
+    if candidates.len() <= 1 {
         return;
     }
     let size = read_terminal_size();
@@ -112,8 +116,13 @@ pub fn print_candidates(candidates: &Vec<String>, cursor: usize, index: Option<u
             let w = &line[j];
             let space = o_max_lens[j] - (j + 1 == line.len()) as usize - w.len();
 
-            let w = if fixed_len < w.len(){
-                &format!("{gray}{}{reset}{}{reset}{}{reset}", &w[..fixed_len], &w[fixed_len..=fixed_len], &w[fixed_len+1..])
+            let w = if fixed_len < w.len() {
+                &format!(
+                    "{gray}{}{reset}{}{reset}{}{reset}",
+                    &w[..fixed_len],
+                    &w[fixed_len..=fixed_len],
+                    &w[fixed_len + 1..]
+                )
             } else {
                 &format!("{}{w}{reset}", fg(Color::BrightMagenta))
             };
@@ -131,9 +140,8 @@ pub fn print_candidates(candidates: &Vec<String>, cursor: usize, index: Option<u
 fn print_buffer_and_back(buffer: &str, cursor: usize) {
     let width = read_terminal_size().width as usize;
     let newline = &newline();
-    let up = cursor_up(((strip_ansi(buffer).len() + width - 1) / width) as u32);
+    let up = cursor_up(buffer.matches("\r\n").count() as u32 + 1);
     let left_end = cursor_to_line_start();
     let right = cursor_right((cursor % width) as u32);
     write!(stdout().lock(), "{newline}{buffer}{up}{left_end}{right}").unwrap();
-    flush();
 }

@@ -16,7 +16,7 @@ pub struct Shell {
     pub history: History,
     pub abbrs: Abbrs,
     pub aliases: Aliases,
-    exe_list: ExeList,
+    pub exe_list: ExeList,
     pub completion: CompletionStore,
     pub variables: BTreeMap<String, String>,
     pub dir_stack: Vec<PathBuf>,

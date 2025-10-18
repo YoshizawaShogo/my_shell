@@ -5,7 +5,7 @@ mod ui;
 
 use std::{
     borrow::Cow,
-    fs,
+    fs, io,
     path::{MAIN_SEPARATOR, Path, PathBuf},
 };
 
@@ -92,7 +92,8 @@ fn main() -> Result<()> {
                     if pre_action == Action::Tab && candidates.len() >= 2 {
                         // completion_mode();
                     } else {
-                        (candidates, completion_fixed_len) = complete(&mut buffer, &mut cursor, &shell);
+                        (candidates, completion_fixed_len) =
+                            complete(&mut buffer, &mut cursor, &mut shell);
                     }
                 }
                 Action::Home => cursor = 0,
@@ -293,7 +294,7 @@ fn expand_abbr(buffer: &mut String, cursor: &mut usize, shell: &Shell) -> bool {
 //     }
 // }
 
-fn complete(buffer: &mut String, cursor: &mut usize, shell: &Shell) -> (Vec<String>, usize) {
+fn complete(buffer: &mut String, cursor: &mut usize, shell: &mut Shell) -> (Vec<String>, usize) {
     let last_is_space = buffer[..*cursor].ends_with(' ');
     let tokens = tokenize(&buffer[..*cursor]);
     let Ok(expr) = parse(&tokens) else {
@@ -316,12 +317,31 @@ fn complete(buffer: &mut String, cursor: &mut usize, shell: &Shell) -> (Vec<Stri
             // 現在、cmdを書いている途中。
             // /を含んでいる場合はfile補完
             // そうでなければ、cmdやaliasなどを補完
+            if cmd.contains("/") {
+                let (dir, file) = completion_split(&cmd);
+                let src = get_exes(Path::new(&dir));
+                return complete_parts(src, &file, buffer, cursor, &cmd);
+            } else {
+                let src = shell.exe_list.command_candidates(&cmd);
+                return complete_parts(src, &cmd, buffer, cursor, &cmd);
+            }
         }
         (0, true) => {
             // 現在、cmdをちょうど書き終えたところ。
             // subcmdかfileかオプションを書き始めるところ。
             // subがあればsub
             // そうでなければ、file
+            let cmd_completion = shell.completion.data.get(&cmd);
+            let subcmd_completion = cmd_completion.map(|x| &x.subcommands);
+            if subcmd_completion.is_some() {
+                let subcmd_list: Vec<String> = subcmd_completion.unwrap().keys().cloned().collect();
+                let common = common_prefix(subcmd_list.iter().cloned());
+                let adder = common[cmd.len()..common.len()].to_string();
+                buffer.insert_str(*cursor, &adder);
+                *cursor += adder.len();
+                return (subcmd_list, common.len());
+            } else {
+            }
         }
         (1, false) => {
             // 一つ目の引数を書いている途中
@@ -342,17 +362,72 @@ fn complete(buffer: &mut String, cursor: &mut usize, shell: &Shell) -> (Vec<Stri
     return (vec![], 0);
 }
 
-fn get_dirs(path: &Path) -> Vec<String> {
-    let mut dirs: Vec<String> = match fs::read_dir(path) {
-        Ok(entries) => entries
-            .flatten()
-            .filter(|x| x.file_type().map(|t| t.is_dir()).unwrap_or(false))
-            .map(|x| x.file_name().to_string_lossy().into_owned())
-            .collect(),
-        Err(_) => vec![],
-    };
-    dirs.sort_unstable();
-    dirs
+fn list_with<F, M>(path: &Path, filter: F, map: M) -> Vec<String>
+where
+    F: Fn(&fs::DirEntry) -> bool,
+    M: Fn(fs::DirEntry) -> String,
+{
+    let mut v: Vec<_> = fs::read_dir(path)
+        .ok() // Err を無視して Option に変換
+        .into_iter() // Option<ReadDir> → Iterator
+        .flat_map(|it| it.flatten()) // 失敗した DirEntry を無視
+        .filter(|e| filter(e))
+        .map(map)
+        .collect();
+    v.sort_unstable();
+    v
+}
+
+pub fn get_files(path: &Path) -> Vec<String> {
+    list_with(
+        path,
+        |_| true, // ここでは全件（必要なら is_file 判定に変更）
+        |e| e.path().to_string_lossy().into_owned(),
+    )
+}
+
+pub fn get_dirs(path: &Path) -> Vec<String> {
+    list_with(
+        path,
+        |e| e.file_type().map(|t| t.is_dir()).unwrap_or(false),
+        |e| e.file_name().to_string_lossy().into_owned(),
+    )
+}
+
+pub fn complete_parts(
+    src: Vec<String>,
+    prefix: &str,
+    buffer: &mut String,
+    cursor: &mut usize,
+    base_for_slash: &str,
+) -> (Vec<String>, usize) {
+    let candidates: Vec<String> = src.into_iter().filter(|x| x.starts_with(prefix)).collect();
+    let common = common_prefix(candidates.iter().cloned());
+    let adder = common[prefix.len()..].to_string();
+    buffer.insert_str(*cursor, &adder);
+    *cursor += adder.len();
+
+    let new = base_for_slash.to_string() + &adder;
+    if candidates.len() == 1 && Path::new(&new).is_dir() {
+        buffer.insert(*cursor, '/');
+        *cursor += 1;
+    }
+    
+    (candidates, common.len())
+}
+
+use std::os::unix::fs::PermissionsExt;
+pub fn get_exes(path: &Path) -> Vec<String> {
+    list_with(
+        path,
+        |e| {
+            e.metadata()
+                .ok()
+                .map(|m| m.permissions().mode() & 0o111 != 0)
+                .unwrap_or(false)
+        },
+        |e| e.file_name().to_string_lossy().into_owned(),
+    )
 }
 
 fn complete_cd(
@@ -364,34 +439,13 @@ fn complete_cd(
     if args.len() >= 2 || (args.len() == 1 && last_is_space) {
         return (vec![], 0);
     }
-    let last_word = args.last();
-    let (dir, file) = completion_split(last_word);
-    let candidates: Vec<String> = get_dirs(Path::new(&dir))
-        .iter()
-        .filter(|x| x.starts_with(&file))
-        .cloned()
-        .collect();
-    if candidates.len() == 0 {
-        return (vec![], 0);
-    } else if candidates.len() == 1 {
-        let adder = candidates.first().unwrap()[file.len()..].to_string() + "/";
-        buffer.insert_str(*cursor, &adder);
-        *cursor += adder.len();
-        return (vec![], 0);
-    } else {
-        let common = common_prefix(&candidates);
-        let adder = common[file.len()..common.len()].to_string();
-        buffer.insert_str(*cursor, &adder);
-        *cursor += adder.len();
-        return (candidates, common.len());
-    }
+    let last_word = args.last().cloned().unwrap_or_default();
+    let (dir, file) = completion_split(&last_word);
+    let src = get_dirs(Path::new(&dir));
+    return complete_parts(src, &file, buffer, cursor, &last_word);
 }
 
-pub fn completion_split(input: Option<&String>) -> (String, String) {
-    let input = match input {
-        Some(x) => x,
-        None => return ("./".to_string(), "".to_string()),
-    };
+pub fn completion_split(input: &str) -> (String, String) {
     match input.rfind(MAIN_SEPARATOR) {
         Some(pos) if pos == 0 => {
             return ("/".to_string(), input[1..].to_string());
@@ -413,15 +467,18 @@ pub fn completion_split(input: Option<&String>) -> (String, String) {
     };
 }
 
-fn common_prefix(strings: &[String]) -> String {
-    if strings.is_empty() {
+fn common_prefix<I>(mut strings: I) -> String
+where
+    I: Iterator<Item = String>,
+{
+    // 最初の要素を取得（なければ空文字を返す）
+    let Some(first) = strings.next() else {
         return String::new();
-    }
+    };
 
-    // 最初の要素を基準に比較
-    let mut prefix = strings[0].clone();
+    let mut prefix = first;
 
-    for s in &strings[1..] {
+    for s in strings {
         let mut i = 0;
         for (a, b) in prefix.chars().zip(s.chars()) {
             if a != b {
