@@ -5,7 +5,7 @@ use std::{
     env, fs, io,
 };
 
-use crate::{error::Result, shell::Shell};
+use crate::error::Result;
 
 #[derive(Default, Clone, Debug)]
 pub struct CompletionStore {

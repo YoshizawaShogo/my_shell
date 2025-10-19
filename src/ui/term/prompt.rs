@@ -69,7 +69,9 @@ fn get_current_dir() -> String {
 fn get_git_branch() -> Option<String> {
     fn run_git(args: &[&str]) -> Option<String> {
         let out = Command::new("git").args(args).output().ok()?;
-        if !out.status.success() { return None; }
+        if !out.status.success() {
+            return None;
+        }
         let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
         if s.is_empty() { None } else { Some(s) }
     }

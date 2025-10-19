@@ -22,14 +22,8 @@ impl Expansion {
         self.expansions.insert(key.clone(), val);
         exe_list.insert(key);
     }
-    pub fn contains_key(&self, key: &str) -> bool {
-        self.expansions.contains_key(key)
-    }
     pub fn get(&self, key: &str) -> Option<&String> {
         self.expansions.get(key)
-    }
-    pub fn keys(&self) -> std::collections::btree_map::Keys<'_, String, String> {
-        self.expansions.keys()
     }
     pub fn display(&self, w: &mut dyn Write) {
         if self.expansions.is_empty() {

@@ -4,7 +4,9 @@ mod shell;
 mod ui;
 
 use std::{
-    borrow::Cow, collections::BTreeSet, fs, io, path::{Path, PathBuf, MAIN_SEPARATOR}
+    collections::BTreeSet,
+    fs,
+    path::{MAIN_SEPARATOR, Path},
 };
 
 use error::Result;
@@ -14,9 +16,8 @@ use ui::{Action, Mode};
 use crate::{
     pipeline::{execute, expand_aliases, parse, tokenize, tokens_to_string},
     ui::{
-        clean_term,  delete_printing, flush, init, print_candidates,
-        print_command_line, print_hat_c, print_newline, print_prompt, 
-        set_origin_term, set_raw_term, wait_actions,
+        clean_term, delete_printing, flush, init, print_candidates, print_command_line,
+        print_hat_c, print_newline, print_prompt, set_origin_term, set_raw_term, wait_actions,
     },
 };
 
@@ -88,7 +89,13 @@ fn main() -> Result<()> {
                 }
                 Action::Tab => {
                     if pre_action == Action::Tab && candidates.len() >= 2 {
-                        complete_mode(&mut buffer, &mut cursor, &candidates, completion_fixed_len, &mut shell);
+                        complete_mode(
+                            &mut buffer,
+                            &mut cursor,
+                            &candidates,
+                            completion_fixed_len,
+                            &mut shell,
+                        );
                         candidates = vec![];
                     } else {
                         (candidates, completion_fixed_len) =
@@ -197,7 +204,7 @@ fn complete_mode(
     cursor: &mut usize,
     candidates: &Vec<String>,
     fixed_len: usize,
-    shell: &mut Shell
+    shell: &mut Shell,
 ) {
     let mut index = 0;
     'finish: loop {
@@ -276,11 +283,7 @@ fn complete(buffer: &mut String, cursor: &mut usize, shell: &mut Shell) -> (Vec<
     }
 
     let cmd_completion = shell.completion.data.get(&cmd);
-    let subcmd_completion = shell
-    .completion
-    .data
-    .get(&cmd)
-    .and_then(|x| {
+    let subcmd_completion = shell.completion.data.get(&cmd).and_then(|x| {
         if x.subcommands.is_empty() {
             None
         } else {
@@ -350,7 +353,9 @@ fn complete(buffer: &mut String, cursor: &mut usize, shell: &mut Shell) -> (Vec<
             // 引数1がサブコマンドであれば、option補完内容が変わるので注意。
             let sub_cmd = args.first().unwrap();
             let last_arg = args.last().unwrap();
-            let options = sub_cmp.get(sub_cmd).map_or(BTreeSet::default(), |x| x.options.clone());
+            let options = sub_cmp
+                .get(sub_cmd)
+                .map_or(BTreeSet::default(), |x| x.options.clone());
             dbg!("hello");
             dbg!(sub_cmp);
             return complete_parts(options, last_arg, buffer, cursor);
@@ -362,7 +367,7 @@ fn complete(buffer: &mut String, cursor: &mut usize, shell: &mut Shell) -> (Vec<
             }
             let last_arg = args.last().unwrap();
             let src = cmd_completion.unwrap().options.clone();
-            return complete_parts(src, last_arg, buffer, cursor)
+            return complete_parts(src, last_arg, buffer, cursor);
         }
         (_, false, _, false) => {
             // それ以外はfile補完

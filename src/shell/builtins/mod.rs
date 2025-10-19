@@ -3,13 +3,13 @@ use crate::shell::Shell;
 mod abbr;
 mod alias;
 mod cd;
+mod complete;
 mod exit;
 mod history;
 mod popd;
 mod set;
 mod setenv;
 mod source;
-mod complete;
 
 pub use source::source_with_io;
 
