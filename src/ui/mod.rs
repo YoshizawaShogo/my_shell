@@ -35,10 +35,6 @@ pub fn print_prompt() {
     write!(stdout().lock(), "{}", term::prompt::get_prompt()).unwrap();
 }
 
-pub fn delete_after() {
-    write!(stdout().lock(), "{}", ansi::delete_after()).unwrap();
-}
-
 pub fn print_hat_c() {
     write!(
         stdout().lock(),

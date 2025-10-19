@@ -4,9 +4,7 @@ mod shell;
 mod ui;
 
 use std::{
-    borrow::Cow,
-    fs, io,
-    path::{MAIN_SEPARATOR, Path, PathBuf},
+    borrow::Cow, collections::BTreeSet, fs, io, path::{Path, PathBuf, MAIN_SEPARATOR}
 };
 
 use error::Result;
@@ -16,7 +14,7 @@ use ui::{Action, Mode};
 use crate::{
     pipeline::{execute, expand_aliases, parse, tokenize, tokens_to_string},
     ui::{
-        clean_term, delete_after, delete_printing, flush, init, print_candidates,
+        clean_term,  delete_printing, flush, init, print_candidates,
         print_command_line, print_hat_c, print_newline, print_prompt, read_terminal_size,
         set_origin_term, set_raw_term, wait_actions,
     },
@@ -204,9 +202,13 @@ fn complete_mode(
     'finish: loop {
         delete_printing(*cursor);
         let adder = &candidates[index][fixed_len..];
-        let tmp_buffer = &(buffer.clone() + adder);
-        let tmp_cursor = *cursor + adder.len();
-        print_command_line(tmp_buffer, tmp_cursor, "");
+        let mut tmp_buffer = buffer.clone() + adder;
+        let mut tmp_cursor = *cursor + adder.len();
+        if !tmp_buffer.ends_with("/") {
+            tmp_buffer += " ";
+            tmp_cursor += 1;
+        }
+        print_command_line(&tmp_buffer, tmp_cursor, "");
         let width = print_candidates(&candidates, tmp_cursor, Some(index), fixed_len);
         flush();
         let Ok(actions) = wait_actions(&Mode::Completion, 20) else {
@@ -295,7 +297,7 @@ fn complete(buffer: &mut String, cursor: &mut usize, shell: &mut Shell) -> (Vec<
             // 現在、cmdをちょうど書き終えたところ。
             // subcmdかfileかオプションを書き始めるところ。
             // subがあればsub
-            let src = sub_cmp.keys().cloned().collect();
+            let src = sub_cmp.keys().cloned();
             return complete_parts(src, "", buffer, cursor);
         }
         (0, true, None, _) => {
@@ -306,9 +308,18 @@ fn complete(buffer: &mut String, cursor: &mut usize, shell: &mut Shell) -> (Vec<
         (1, false, _, true) => {
             // 一つ目の引数を書いている途中
             // -から始まっているとoption補完
+            if cmd_completion.is_none() {
+                return (vec![], 0);
+            }
+            let last_arg = args.last().unwrap();
+            let src = cmd_completion.unwrap().options.clone();
+            return complete_parts(src, last_arg, buffer, cursor);
         }
         (1, false, Some(sub_cmp), false) => {
             // subがあればsub
+            let last_arg = args.last().unwrap();
+            let src = sub_cmp.keys().cloned();
+            return complete_parts(src, last_arg, buffer, cursor);
         }
         (1, false, None, false) => {
             // そうでなければ、file
@@ -326,20 +337,28 @@ fn complete(buffer: &mut String, cursor: &mut usize, shell: &mut Shell) -> (Vec<
         (_, false, Some(sub_cmp), true) => {
             // -から始まっていると、option補完
             // 引数1がサブコマンドであれば、option補完内容が変わるので注意。
+            let sub_cmd = args.first().unwrap();
+            let last_arg = args.last().unwrap();
+            let options = sub_cmp.get(sub_cmd).map_or(BTreeSet::default(), |x| x.options.clone());
+            return complete_parts(options, last_arg, buffer, cursor);
         }
         (_, false, None, true) => {
             // -から始まっていると、option補完
+            if cmd_completion.is_none() {
+                return (vec![], 0);
+            }
+            let last_arg = args.last().unwrap();
+            let src = cmd_completion.unwrap().options.clone();
+            return complete_parts(src, last_arg, buffer, cursor)
         }
         (_, false, _, false) => {
             // それ以外はfile補完
             let last_arg = args.last().unwrap();
             let (dir, file) = completion_split(&last_arg);
             let src = get_files(&dir);
-            dbg!(&file);
             return complete_parts(src, &file, buffer, cursor);
         }
     };
-    return (vec![], 0);
 }
 
 fn list_with<F>(path: &str, filter: F) -> Vec<String>
@@ -387,7 +406,7 @@ pub fn get_exes(path: &str) -> Vec<String> {
 }
 
 pub fn complete_parts(
-    src: Vec<String>,
+    src: impl IntoIterator<Item = String>,
     prefix: &str,
     buffer: &mut String,
     cursor: &mut usize,
