@@ -16,7 +16,9 @@ use ui::{Action, Mode};
 use crate::{
     pipeline::{execute, expand_aliases, parse, tokenize, tokens_to_string},
     ui::{
-        clean_term, delete_after, delete_printing, flush, init, print_candidates, print_command_line, print_hat_c, print_newline, print_prompt, read_terminal_size, set_origin_term, set_raw_term, wait_actions
+        clean_term, delete_after, delete_printing, flush, init, print_candidates,
+        print_command_line, print_hat_c, print_newline, print_prompt, read_terminal_size,
+        set_origin_term, set_raw_term, wait_actions,
     },
 };
 
@@ -52,14 +54,7 @@ fn main() -> Result<()> {
                     cursor += 1;
                 }
                 Action::Ctrl('c') => {
-                    if !buffer.is_empty() {
-                        print_hat_c();
-                        print_newline();
-                        print_prompt();
-                    }
-                    shell.history.index = 0;
-                    buffer.clear();
-                    cursor = 0;
+                    reset(&mut buffer, &mut cursor, &mut shell);
                 }
                 Action::Ctrl('d') => {
                     if buffer.is_empty() {
@@ -69,12 +64,16 @@ fn main() -> Result<()> {
                         buffer.remove(cursor);
                     }
                 }
+                Action::Ctrl('r') => {
+                    buffer = shell.history.prev_r(&buffer);
+                    cursor = buffer.len();
+                }
                 Action::PreCmd => {
-                    buffer = shell.history.prev(&buffer);
+                    buffer = shell.history.prev_up(&buffer);
                     cursor = buffer.len();
                 }
                 Action::NextCmd => {
-                    buffer = shell.history.next();
+                    buffer = shell.history.next_down();
                     cursor = buffer.len();
                 }
                 Action::Left => {
@@ -90,7 +89,7 @@ fn main() -> Result<()> {
                 }
                 Action::Tab => {
                     if pre_action == Action::Tab && candidates.len() >= 2 {
-                        complete_mode(&mut buffer, &mut cursor, &candidates, completion_fixed_len);
+                        complete_mode(&mut buffer, &mut cursor, &candidates, completion_fixed_len, &mut shell);
                         candidates = vec![];
                     } else {
                         (candidates, completion_fixed_len) =
@@ -199,6 +198,7 @@ fn complete_mode(
     cursor: &mut usize,
     candidates: &Vec<String>,
     fixed_len: usize,
+    shell: &mut Shell
 ) {
     let mut index = 0;
     'finish: loop {
@@ -239,12 +239,7 @@ fn complete_mode(
                     }
                 }
                 Action::Char('c') => {
-                    print_hat_c();
-                    print_newline();
-                    print_prompt();
-                    delete_after();
-                    buffer.clear();
-                    *cursor = 0;
+                    reset(buffer, cursor, shell);
                     return;
                 }
                 _ => break 'finish,
@@ -300,7 +295,7 @@ fn complete(buffer: &mut String, cursor: &mut usize, shell: &mut Shell) -> (Vec<
             // 現在、cmdをちょうど書き終えたところ。
             // subcmdかfileかオプションを書き始めるところ。
             // subがあればsub
-            let src = subcmd_completion.unwrap().keys().cloned().collect();
+            let src = sub_cmp.keys().cloned().collect();
             return complete_parts(src, "", buffer, cursor);
         }
         (0, true, None, _) => {
@@ -378,23 +373,17 @@ pub fn get_files(path: &str) -> Vec<String> {
 }
 
 pub fn get_dirs(path: &str) -> Vec<String> {
-    list_with(
-        path,
-        |e| e.file_type().map(|t| t.is_dir()).unwrap_or(false),
-    )
+    list_with(path, |e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
 }
 
 use std::os::unix::fs::PermissionsExt;
 pub fn get_exes(path: &str) -> Vec<String> {
-    list_with(
-        path,
-        |e| {
-            e.metadata()
-                .ok()
-                .map(|m| m.permissions().mode() & 0o111 != 0)
-                .unwrap_or(false)
-        },
-    )
+    list_with(path, |e| {
+        e.metadata()
+            .ok()
+            .map(|m| m.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    })
 }
 
 pub fn complete_parts(
@@ -486,4 +475,16 @@ where
     }
 
     prefix
+}
+
+fn reset(buffer: &mut String, cursor: &mut usize, shell: &mut Shell) {
+    if !buffer.is_empty() {
+        print_hat_c();
+        print_newline();
+        print_prompt();
+    }
+    shell.history.index_up = 0;
+    shell.history.index_r = 0;
+    buffer.clear();
+    *cursor = 0;
 }

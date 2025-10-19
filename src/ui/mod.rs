@@ -40,7 +40,13 @@ pub fn delete_after() {
 }
 
 pub fn print_hat_c() {
-    write!(stdout().lock(), "{}^C{}", fg(Color::BrightBlack), fg(Color::Reset)).unwrap();
+    write!(
+        stdout().lock(),
+        "{}^C{}",
+        fg(Color::BrightBlack),
+        fg(Color::Reset)
+    )
+    .unwrap();
 }
 
 pub fn print_command_line(buffer: &str, cursor: usize, ghost: &str) {
@@ -160,4 +166,3 @@ fn print_buffer_and_back(buffer: &str, cursor: usize) {
     let right = cursor_right((cursor % width) as u32);
     write!(stdout().lock(), "{newline}{buffer}{up}{left_end}{right}").unwrap();
 }
-

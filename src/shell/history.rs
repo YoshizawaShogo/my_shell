@@ -12,8 +12,10 @@ pub struct History {
     capacity: usize,
     pub log: VecDeque<(String, String)>, // abs-path, command
     hash: BTreeSet<(String, String)>,
-    pub index: usize,
-    buffer: String,
+    pub index_up: usize,
+    buffer_up: String,
+    pub index_r: usize,
+    buffer_r: Vec<String>,
 }
 
 impl History {
@@ -45,8 +47,10 @@ impl History {
             capacity,
             log: command_log,
             hash,
-            index: 0,
-            buffer: String::new(),
+            index_up: 0,
+            buffer_up: String::new(),
+            index_r: 0,
+            buffer_r: vec![],
         }
     }
     pub fn push(&mut self, cmd: String) {
@@ -66,30 +70,48 @@ impl History {
             let poped = self.log.pop_front().unwrap();
             self.hash.remove(&poped);
         }
-        self.index = 0;
+        self.index_up = 0;
     }
-    pub fn prev(&mut self, buffer: &str) -> String {
+    pub fn prev_up(&mut self, buffer: &str) -> String {
         if self.log.is_empty() {
             return String::new();
         }
-        if self.index == 0 {
+        if self.index_up == 0 {
             // 現在打ち込んでいるコマンドラインが消えないように
-            self.buffer = buffer.to_string();
+            self.buffer_up = buffer.to_string();
         }
-        if self.index < self.log.len() {
-            self.index += 1;
+        if self.index_up < self.log.len() {
+            self.index_up += 1;
         }
-        self.log[self.log.len() - self.index].clone().1
+        self.log[self.log.len() - self.index_up].clone().1
     }
-    pub fn next(&mut self) -> String {
-        if 0 < self.index {
-            self.index -= 1;
+    pub fn next_down(&mut self) -> String {
+        if 0 < self.index_up {
+            self.index_up -= 1;
         }
-        if self.index == 0 {
-            self.buffer.clone()
+        if self.index_up == 0 {
+            self.buffer_up.clone()
         } else {
-            self.log[self.log.len() - self.index].clone().1
+            self.log[self.log.len() - self.index_up].clone().1
         }
+    }
+    pub fn prev_r(&mut self, buffer: &str) -> String {
+        if self.index_r == 0 {
+            self.buffer_r = buffer.split_whitespace().map(|x| x.to_string()).collect();
+        }
+        if self.buffer_r.is_empty() {
+            return buffer.to_string();
+        }
+
+        self.index_r += 1;
+        while self.index_r <= self.log.len() {
+            let target = self.log[self.log.len() - self.index_r].clone().1;
+            if self.buffer_r.iter().all(|x| target.contains(x)) {
+                return target;
+            }
+            self.index_r += 1;
+        }
+        "".to_string()
     }
     pub(super) fn save(&self) -> Result<()> {
         let log_str = self
