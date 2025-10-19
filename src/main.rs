@@ -15,7 +15,7 @@ use crate::{
     pipeline::{execute, expand_aliases, parse, tokenize, tokens_to_string},
     ui::{
         clean_term,  delete_printing, flush, init, print_candidates,
-        print_command_line, print_hat_c, print_newline, print_prompt, read_terminal_size,
+        print_command_line, print_hat_c, print_newline, print_prompt, 
         set_origin_term, set_raw_term, wait_actions,
     },
 };
@@ -275,7 +275,17 @@ fn complete(buffer: &mut String, cursor: &mut usize, shell: &mut Shell) -> (Vec<
     }
 
     let cmd_completion = shell.completion.data.get(&cmd);
-    let subcmd_completion = cmd_completion.map(|x| &x.subcommands);
+    let subcmd_completion = shell
+    .completion
+    .data
+    .get(&cmd)
+    .and_then(|x| {
+        if x.subcommands.is_empty() {
+            None
+        } else {
+            Some(&x.subcommands)
+        }
+    });
     let is_option = args.last().is_some_and(|x| x.starts_with("-"));
 
     // cmd [sub] [file|option]* しか考慮しない。
@@ -340,6 +350,8 @@ fn complete(buffer: &mut String, cursor: &mut usize, shell: &mut Shell) -> (Vec<
             let sub_cmd = args.first().unwrap();
             let last_arg = args.last().unwrap();
             let options = sub_cmp.get(sub_cmd).map_or(BTreeSet::default(), |x| x.options.clone());
+            dbg!("hello");
+            dbg!(sub_cmp);
             return complete_parts(options, last_arg, buffer, cursor);
         }
         (_, false, None, true) => {
