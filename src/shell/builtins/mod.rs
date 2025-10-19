@@ -9,6 +9,7 @@ mod popd;
 mod set;
 mod setenv;
 mod source;
+mod complete;
 
 pub use source::source_with_io;
 
@@ -35,6 +36,7 @@ fn registry() -> &'static [&'static dyn Builtin] {
         &set::SetCmd,
         &setenv::SetenvCmd,
         &source::SourceCmd,
+        &complete::CompleteCmd,
     ]
 }
 
