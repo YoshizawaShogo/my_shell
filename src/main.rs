@@ -22,6 +22,7 @@ use crate::{
 
 fn main() -> Result<()> {
     init();
+    print!("\x1b[5 q"); // カーソルをブロックから縦棒へ変更する。
     let mut shell = Shell::new();
     let mut buffer = String::new();
     let mut cursor = 0;
