@@ -67,20 +67,33 @@ fn get_current_dir() -> String {
 }
 
 fn get_git_branch() -> Option<String> {
-    let branch_output = Command::new("git")
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .output()
-        .ok()?;
-
-    if !branch_output.status.success() {
-        return None;
+    fn run_git(args: &[&str]) -> Option<String> {
+        let out = Command::new("git").args(args).output().ok()?;
+        if !out.status.success() { return None; }
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if s.is_empty() { None } else { Some(s) }
     }
 
-    let branch = String::from_utf8_lossy(&branch_output.stdout)
-        .trim()
-        .to_string();
+    // 1) exact tag match (annotated / lightweight どちらもOK)
+    if let Some(tag) = run_git(&["describe", "--tags", "--exact-match", "HEAD"]) {
+        return Some(tag);
+    }
 
-    Some(branch)
+    // 2) branch 名（detached のとき "HEAD" が返ることがあるので除外）
+    if let Some(branch) = run_git(&["symbolic-ref", "--short", "-q", "HEAD"]) {
+        if branch != "HEAD" {
+            return Some(branch);
+        }
+    }
+    // （保険として旧コマンドも試すなら）
+    if let Some(branch) = run_git(&["rev-parse", "--abbrev-ref", "HEAD"]) {
+        if branch != "HEAD" {
+            return Some(branch);
+        }
+    }
+
+    // 3) short hash
+    run_git(&["rev-parse", "--short", "HEAD"])
 }
 
 fn get_current_time_string() -> String {
